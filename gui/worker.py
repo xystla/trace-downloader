@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright
 
 from trace_grabber.config import load_config
 from trace_grabber import accounts as accts_mod
+from trace_grabber import analytics
 from trace_grabber import paths
 from trace_grabber.session import (is_logged_in, login_status, api_logged_in,
                                     discover_teams, cookie_headers)
@@ -112,6 +113,9 @@ class Worker:
 
     def reload_config(self):
         return self.submit(lambda: self._reload_config())
+
+    def compute_analytics(self):
+        return self.submit(lambda: self._compute_analytics())
 
     # ---- thread internals ----
 
@@ -368,3 +372,49 @@ class Worker:
     def _reload_config(self):
         self._cfg = load_config(DATA / "config.yaml")
         return True
+
+    def _compute_analytics(self):
+        """Stats for the active account's DOWNLOADED games (state.json). Skips any
+        game that isn't accessible or errors — never fails the whole batch."""
+        acct = self._active()
+        if not acct or not acct.team_urls:
+            return []
+        team_slug = acct.team_urls[0].rstrip("/").split("/")[-1]
+        request = self._ctx.request
+
+        token = analytics.user_token(request)
+        hash_key = analytics.user_hash_key(request)
+        team_id = analytics.team_numeric_id(request, team_slug)
+        if not (token.get("token") and team_id):
+            return []
+
+        games_by_id = analytics.fetch_team_games(request, team_id, token)
+        done = load_state(acct.state_path(DATA))   # ids like "hjmwnzo2-13787132"
+        out = []
+        for full_id in done:
+            try:
+                num = int(full_id.rsplit("-", 1)[-1])
+            except ValueError:
+                continue
+            game = games_by_id.get(num)
+            if not game or game.get("status") != "ready":
+                continue
+            side = analytics.our_side_for(game, team_id)
+            if side is None:
+                continue
+            try:
+                allowed, moments = analytics.fetch_game_moments(request, num, hash_key, token)
+                if not allowed or not moments:
+                    continue
+                opp = (game.get("away_team") if side == "home"
+                       else game.get("home_team")) or {}
+                meta = analytics.GameMeta(game_id=num,
+                                          date=(game.get("full_date") or "")[:10],
+                                          opponent=opp.get("title") or opp.get("name") or "",
+                                          our_side=side)
+                out.append(analytics.compute_game_stats(moments, meta))
+            except Exception:
+                LOG.exception("analytics failed for game %s", full_id)
+                continue
+        out.sort(key=lambda s: s.date, reverse=True)
+        return out

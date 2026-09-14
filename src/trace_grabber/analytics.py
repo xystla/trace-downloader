@@ -273,3 +273,27 @@ def fetch_game_moments(request, game_id: int, hash_key: str, token: dict):
     game = data.get("game") or {}
     allowed = bool((game.get("access") or {}).get("allowed"))
     return allowed, (game.get("moments") or [])
+
+
+USERS_SELF_TEAMS_URL = "https://teams.traceup.com/webapp/users/self/teams"
+
+
+def user_hash_key(request) -> str:
+    j = request.get(USERS_SELF_URL, timeout=12000).json()
+    return ((j.get("data") or {}).get("hash_key")) or ""
+
+
+def team_numeric_id(request, team_slug: str):
+    j = request.get(USERS_SELF_TEAMS_URL, timeout=12000).json()
+    for t in (j.get("data") or []):
+        if t.get("name") == team_slug:
+            return t.get("team_id") or t.get("id")
+    return None
+
+
+def our_side_for(game: dict, team_id: int):
+    if (game.get("home_team") or {}).get("team_id") == team_id:
+        return "home"
+    if (game.get("away_team") or {}).get("team_id") == team_id:
+        return "away"
+    return None
