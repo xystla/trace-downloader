@@ -227,6 +227,39 @@ el("downloadAll").onclick = () => api().download_new();
 el("openFolder").onclick = () => api().open_folder();
 el("settingsBtn").onclick = () => el("settings").showModal();
 el("closeSettings").onclick = () => el("settings").close();
+
+// ---- team analytics dialog: lazy-loaded (fetched fresh each time it opens) ----
+async function loadAnalytics() {
+  const data = await api().get_analytics();
+  const tbody = document.querySelector("#analytics-table tbody");
+  const tfoot = document.querySelector("#analytics-table tfoot");
+  const map = el("season-map");
+  const empty = el("analytics-empty");
+  map.innerHTML = data.season_territory_svg || "";
+  tbody.innerHTML = "";
+  empty.hidden = data.games.length > 0;
+  data.games.forEach((g) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${g.date}</td><td>${g.opponent}</td><td>${g.poss_pct_us}%</td>`
+      + `<td>${g.passes_us}</td><td>${g.shots_us}</td><td>${g.box_us}</td>`
+      + `<td>${g.att_third_us}</td><td>${g.packing_us}</td>`;
+    tr.addEventListener("click", () => { map.innerHTML = g.territory_svg; });
+    tbody.appendChild(tr);
+  });
+  const s = data.season;
+  tfoot.innerHTML = data.games.length
+    ? `<tr><td>Season</td><td>${s.games} games</td><td>${s.poss_pct_us}%</td>`
+      + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.box_us}</td>`
+      + `<td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
+    : "";
+}
+el("analyticsBtn").onclick = async () => {
+  el("analytics").showModal();
+  await loadAnalytics();
+};
+el("closeAnalytics").onclick = () => el("analytics").close();
+el("export-csv").onclick = () => api().export_analytics("csv");
+el("export-html").onclick = () => api().export_analytics("html");
 el("auto").onchange = (e) => api().set_auto(e.target.checked);
 el("removeAccount").onclick = async () => {
   const sel = el("account");

@@ -21,6 +21,7 @@
   <div id="games" class="games"></div>
   <footer>
     <button id="openFolder">📁 Open folder</button>
+    <button id="analyticsBtn">📊 Analytics</button>
     <button id="settingsBtn">⚙ Settings</button>
   </footer>
   <dialog id="connect">
@@ -55,6 +56,27 @@
     <label class="switch"><input type="checkbox" id="auto"> Download new games automatically every 3 hours</label>
     <button id="removeAccount" style="background:#3a2330;color:#e6a">Log out / remove this account</button>
     <menu><button id="closeSettings">Done</button></menu>
+  </dialog>
+  <dialog id="analytics">
+    <div class="row">
+      <h2>Team Analytics</h2>
+      <span class="spacer"></span>
+      <button id="export-csv">Export CSV</button>
+      <button id="export-html">Export HTML</button>
+    </div>
+    <div id="season-map" class="pitch"></div>
+    <p class="caption">Where the ball was, by third (from Trace touch-chains) —
+       not pixel tracking. "Passes" counts ball-touches in your team's sequences.</p>
+    <div id="analytics-empty" class="muted" hidden>Download some games first.</div>
+    <div class="table-wrap">
+      <table id="analytics-table">
+        <thead><tr><th>Date</th><th>Opponent</th><th>Poss %</th>
+          <th>Passes (touches)</th><th>Shots</th><th>Box</th><th>Att ⅓</th><th>Packing</th></tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table>
+    </div>
+    <menu><button id="closeAnalytics">Done</button></menu>
   </dialog>
   <div id="version" class="version"></div>
   <script src="app.js"></script>
