@@ -1,0 +1,22 @@
+[
+  {"type": "touch_chain key home_packing home_shot", "side": "home",
+   "start_third": "defensive", "end_third": "middle", "thirds": ["defensive", "middle"],
+   "duration": 60, "trace_numbers": ["6", "2", "5"],
+   "keywords": ["home-shot", "touch-chain", "packing", "home"]},
+  {"type": "touch_chain key home_shot away_box", "side": "home",
+   "start_third": "offensive", "end_third": "offensive", "thirds": ["offensive"],
+   "duration": 40, "trace_numbers": ["7", "9", "10", "11"],
+   "keywords": ["home-shot", "touch-chain", "away-box", "home"]},
+  {"type": "touch_chain key away_shot", "side": "away",
+   "start_third": "middle", "end_third": "offensive", "thirds": ["middle", "offensive"],
+   "duration": 30, "trace_numbers": ["4", "5"],
+   "keywords": ["away-shot", "touch-chain", "away"]},
+  {"type": "touch_chain", "side": "away",
+   "start_third": "defensive", "end_third": "defensive", "thirds": [],
+   "duration": 20, "trace_numbers": ["8", "?"],
+   "keywords": ["touch-chain", "away"]},
+  {"type": "Trace", "side": "home", "start_third": "", "end_third": "", "thirds": [],
+   "duration": 10, "trace_numbers": [], "keywords": ["home"]},
+  {"type": "FullGameVideo", "side": "", "start_third": "", "end_third": "", "thirds": [],
+   "duration": 0, "trace_numbers": [], "keywords": []}
+]
