@@ -136,3 +136,36 @@ def aggregate(stats: list[GameStats]) -> SeasonStats:
             mean([s.territory_us.offensive for s in stats]),
         ),
     )
+
+
+def territory_svg(t: Territory, *, dark: bool = False) -> str:
+    W, H = 360, 200
+    band_w = W / 3
+    stroke = "#e8e8e8" if dark else "#20303a"
+    label = "#ffffff" if dark else "#0d1b22"
+    base = "20,120,90"  # green, opacity carries the share
+    shares = ((t.defensive, "Def"), (t.middle, "Mid"), (t.offensive, "Att"))
+    peak = max((s for s, _ in shares), default=0) or 1
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" '
+             f'width="{W}" height="{H}" role="img" aria-label="Territory by third">']
+    parts.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="none" '
+                 f'stroke="{stroke}" stroke-width="2"/>')
+    for i, (share, name) in enumerate(shares):
+        x = i * band_w
+        op = round(0.12 + 0.78 * (share / peak), 3)
+        parts.append(f'<rect x="{x:.1f}" y="0" width="{band_w:.1f}" height="{H}" '
+                     f'fill="rgba({base},{op})"/>')
+        parts.append(f'<text x="{x + band_w/2:.1f}" y="{H/2 - 6:.0f}" '
+                     f'text-anchor="middle" font-size="20" font-weight="700" '
+                     f'fill="{label}">{share:g}%</text>')
+        parts.append(f'<text x="{x + band_w/2:.1f}" y="{H/2 + 16:.0f}" '
+                     f'text-anchor="middle" font-size="12" fill="{label}">{name}</text>')
+    # centre line + goal boxes
+    parts.append(f'<line x1="{W/2}" y1="0" x2="{W/2}" y2="{H}" stroke="{stroke}" '
+                 f'stroke-width="1"/>')
+    parts.append(f'<rect x="0" y="{H/2-40}" width="26" height="80" fill="none" '
+                 f'stroke="{stroke}" stroke-width="2"/>')
+    parts.append(f'<rect x="{W-26}" y="{H/2-40}" width="26" height="80" fill="none" '
+                 f'stroke="{stroke}" stroke-width="2"/>')
+    parts.append("</svg>")
+    return "".join(parts)
