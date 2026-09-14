@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import webview
@@ -9,7 +10,7 @@ import yaml
 
 from gui.worker import Worker
 from gui.viewmodel import games_view, connection_state
-from trace_grabber import paths, platform_tasks
+from trace_grabber import analytics, paths, platform_tasks
 from trace_grabber.config import load_config
 
 WEB = paths.resource_dir() / "gui" / "web"
@@ -168,6 +169,38 @@ class Api:
         cfgpath.write_text(yaml.safe_dump(data, sort_keys=False))
         self._w().reload_config()
         return {"ok": True, "output_dir": path}
+
+    def get_analytics(self):
+        games = self._w().compute_analytics()
+        season = analytics.aggregate(games)
+        return {
+            "games": [{**asdict(g), "territory_svg": analytics.territory_svg(g.territory_us)}
+                      for g in games],
+            "season": asdict(season),
+            "season_territory_svg": analytics.territory_svg(season.territory),
+        }
+
+    def export_analytics(self, fmt):
+        if not self._window:
+            return {"ok": False}
+        games = self._w().compute_analytics()
+        season = analytics.aggregate(games)
+        ext = "csv" if fmt == "csv" else "html"
+        # SAVE_DIALOG was renamed to FileDialog.SAVE in newer pywebview
+        # (mirrors the FOLDER shim in choose_output_dir).
+        save = getattr(getattr(webview, "FileDialog", None), "SAVE", None)
+        if save is None:
+            save = webview.SAVE_DIALOG
+        try:
+            res = self._window.create_file_dialog(
+                save, save_filename=f"team-analytics.{ext}")
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        if not res:
+            return {"ok": False}  # cancelled
+        path = Path(res[0] if isinstance(res, (list, tuple)) else res)
+        (analytics.export_csv if fmt == "csv" else analytics.export_html)(games, season, path)
+        return {"ok": True, "path": str(path)}
 
     def save_settings(self, settings):
         path = DATA / "config.yaml"
