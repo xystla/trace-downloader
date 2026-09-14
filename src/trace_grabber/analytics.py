@@ -4,7 +4,10 @@ Pure compute functions (unit-tested) plus thin fetch helpers over the app's
 authenticated Playwright request context. See
 docs/superpowers/specs/2026-09-14-team-analytics-design.md.
 """
+import csv
+import html as _html
 from dataclasses import dataclass
+from pathlib import Path
 
 _THIRDS = ("defensive", "middle", "offensive")
 
@@ -169,3 +172,54 @@ def territory_svg(t: Territory, *, dark: bool = False) -> str:
                  f'stroke="{stroke}" stroke-width="2"/>')
     parts.append("</svg>")
     return "".join(parts)
+
+
+_CSV_HEADER = ["date", "opponent", "possession_pct", "passes_us", "passes_them",
+               "shots_us", "shots_them", "box_us", "att_third_us", "packing_us",
+               "terr_def", "terr_mid", "terr_off"]
+
+
+def _row(s: "GameStats") -> list:
+    return [s.date, s.opponent, s.poss_pct_us, s.passes_us, s.passes_them,
+            s.shots_us, s.shots_them, s.box_us, s.att_third_us, s.packing_us,
+            s.territory_us.defensive, s.territory_us.middle, s.territory_us.offensive]
+
+
+def export_csv(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(_CSV_HEADER)
+        for s in stats:
+            w.writerow(_row(s))
+        w.writerow(["SEASON", f"{season.games} games", season.poss_pct_us,
+                    season.passes_us, season.passes_them, season.shots_us,
+                    season.shots_them, season.box_us, season.att_third_us,
+                    season.packing_us, season.territory.defensive,
+                    season.territory.middle, season.territory.offensive])
+
+
+def export_html(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
+    e = _html.escape
+    rows = "".join(
+        f"<tr><td>{e(s.date)}</td><td>{e(s.opponent)}</td><td>{s.poss_pct_us}%</td>"
+        f"<td>{s.passes_us}</td><td>{s.shots_us}</td><td>{s.box_us}</td>"
+        f"<td>{s.att_third_us}</td><td>{s.packing_us}</td></tr>"
+        for s in stats)
+    doc = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Team Analytics</title><style>
+body{{font:14px system-ui;margin:24px;color:#0d1b22}}
+table{{border-collapse:collapse;margin-top:16px}}
+th,td{{border:1px solid #ccc;padding:6px 10px;text-align:center}}
+th{{background:#f3f5f6}} caption{{font-size:12px;color:#667;margin:6px}}
+</style></head><body>
+<h1>Team Analytics — {season.games} games</h1>
+<p>Season possession {season.poss_pct_us}% · Passes (touches) {season.passes_us}
+ · Shots {season.shots_us}</p>
+<h2>Where the ball was (season, by third)</h2>
+{territory_svg(season.territory)}
+<p class="caption">Thirds-based territory (from Trace touch-chains), not pixel tracking.</p>
+<table><thead><tr><th>Date</th><th>Opponent</th><th>Poss %</th>
+<th>Passes (touches)</th><th>Shots</th><th>Box</th><th>Att ⅓</th><th>Packing</th>
+</tr></thead><tbody>{rows}</tbody></table>
+</body></html>"""
+    Path(path).write_text(doc)
