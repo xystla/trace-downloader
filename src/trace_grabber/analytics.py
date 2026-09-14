@@ -62,7 +62,8 @@ class GameMeta:
     game_id: int
     date: str
     opponent: str
-    our_side: str   # "home" or "away"
+    our_side: str          # "home" or "away"
+    match_secs: float = 0.0  # nominal match length (2 x approx_half_duration); 0 = unknown
 
 
 @dataclass
@@ -74,6 +75,10 @@ class GameStats:
     # only carries our own team's touch-chains (never the opponent's), so a
     # vs-opponent possession % is not derivable — we report our control time.
     poss_secs_us: float
+    # Our ball-control as a share of nominal match time (poss_secs / match_secs),
+    # or None when match length is unknown. Reads low because touch-chains are
+    # notable sequences, not every touch — it's a "tracked-possession share".
+    poss_pct_us: float | None
     passes_us: int
     shots_us: int
     shots_them: int
@@ -81,16 +86,22 @@ class GameStats:
     att_third_us: int
     packing_us: int
     territory_us: Territory
+    match_secs_us: float = 0.0  # carried for season-level % aggregation
 
 
 def compute_game_stats(moments: list[dict], meta: GameMeta) -> GameStats:
     us, them = meta.our_side, ("away" if meta.our_side == "home" else "home")
     chains = [m for m in moments if _is_touch_chain(m)]
     ours = [m for m in chains if m.get("side") == us]
+    poss_secs = round(sum(m.get("duration") or 0 for m in ours), 1)
+    poss_pct = (round(min(poss_secs / meta.match_secs * 100, 100.0), 1)
+                if meta.match_secs else None)
 
     return GameStats(
         game_id=meta.game_id, date=meta.date, opponent=meta.opponent,
-        poss_secs_us=round(sum(m.get("duration") or 0 for m in ours), 1),
+        poss_secs_us=poss_secs,
+        poss_pct_us=poss_pct,
+        match_secs_us=meta.match_secs,
         passes_us=sum(_touches(m) for m in ours),
         shots_us=sum(1 for m in moments if _has_kw(m, f"{us}-shot")),
         shots_them=sum(1 for m in moments if _has_kw(m, f"{them}-shot")),
@@ -104,7 +115,8 @@ def compute_game_stats(moments: list[dict], meta: GameMeta) -> GameStats:
 @dataclass
 class SeasonStats:
     games: int
-    poss_secs_us: float   # total ball-control seconds across all games
+    poss_secs_us: float          # total ball-control seconds across all games
+    poss_pct_us: float | None    # total ball-control / total nominal match time
     passes_us: int
     shots_us: int
     shots_them: int
@@ -117,11 +129,15 @@ class SeasonStats:
 def aggregate(stats: list[GameStats]) -> SeasonStats:
     n = len(stats)
     if not n:
-        return SeasonStats(0, 0.0, 0, 0, 0, 0, 0, 0, Territory(0.0, 0.0, 0.0))
+        return SeasonStats(0, 0.0, None, 0, 0, 0, 0, 0, 0, Territory(0.0, 0.0, 0.0))
     mean = lambda xs: round(sum(xs) / n, 1)
+    poss_secs = round(sum(s.poss_secs_us for s in stats), 1)
+    match_secs = sum(s.match_secs_us for s in stats)
+    poss_pct = round(min(poss_secs / match_secs * 100, 100.0), 1) if match_secs else None
     return SeasonStats(
         games=n,
-        poss_secs_us=round(sum(s.poss_secs_us for s in stats), 1),
+        poss_secs_us=poss_secs,
+        poss_pct_us=poss_pct,
         passes_us=sum(s.passes_us for s in stats),
         shots_us=sum(s.shots_us for s in stats),
         shots_them=sum(s.shots_them for s in stats),
@@ -174,13 +190,19 @@ def _mins(secs: float) -> float:
     return round(secs / 60, 1)
 
 
-_CSV_HEADER = ["date", "opponent", "ball_control_min", "passes_us",
+def _pct(p: float | None) -> str:
+    """Possession % for display, or an em dash when match length is unknown."""
+    return "—" if p is None else f"{p}%"
+
+
+_CSV_HEADER = ["date", "opponent", "ball_control_min", "possession_pct", "passes_us",
                "shots_us", "shots_them", "box_us", "att_third_us", "packing_us",
                "terr_def", "terr_mid", "terr_off"]
 
 
 def _row(s: "GameStats") -> list:
-    return [s.date, s.opponent, _mins(s.poss_secs_us), s.passes_us,
+    return [s.date, s.opponent, _mins(s.poss_secs_us),
+            "" if s.poss_pct_us is None else s.poss_pct_us, s.passes_us,
             s.shots_us, s.shots_them, s.box_us, s.att_third_us, s.packing_us,
             s.territory_us.defensive, s.territory_us.middle, s.territory_us.offensive]
 
@@ -192,6 +214,7 @@ def export_csv(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
         for s in stats:
             w.writerow(_row(s))
         w.writerow(["SEASON", f"{season.games} games", _mins(season.poss_secs_us),
+                    "" if season.poss_pct_us is None else season.poss_pct_us,
                     season.passes_us, season.shots_us, season.shots_them,
                     season.box_us, season.att_third_us, season.packing_us,
                     season.territory.defensive, season.territory.middle,
@@ -201,7 +224,8 @@ def export_csv(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
 def export_html(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
     e = _html.escape
     rows = "".join(
-        f"<tr><td>{e(s.date)}</td><td>{e(s.opponent)}</td><td>{_mins(s.poss_secs_us)}</td>"
+        f"<tr><td>{e(s.date)}</td><td>{e(s.opponent)}</td>"
+        f"<td>{_mins(s.poss_secs_us)}</td><td>{_pct(s.poss_pct_us)}</td>"
         f"<td>{s.passes_us}</td><td>{s.shots_us}</td><td>{s.shots_them}</td>"
         f"<td>{s.box_us}</td><td>{s.att_third_us}</td><td>{s.packing_us}</td></tr>"
         for s in stats)
@@ -210,17 +234,20 @@ def export_html(stats: list[GameStats], season: SeasonStats, path: Path) -> None
 body{{font:14px system-ui;margin:24px;color:#0d1b22}}
 table{{border-collapse:collapse;margin-top:16px}}
 th,td{{border:1px solid #ccc;padding:6px 10px;text-align:center}}
-th{{background:#f3f5f6}} caption{{font-size:12px;color:#667;margin:6px}}
+th{{background:#f3f5f6}} .caption{{font-size:12px;color:#667;margin:6px 0}}
 </style></head><body>
 <h1>Team Analytics — {season.games} games</h1>
-<p>Season ball-control {_mins(season.poss_secs_us)} min · Passes (touches) {season.passes_us}
- · Shots {season.shots_us}-{season.shots_them}</p>
+<p>Season ball-control {_mins(season.poss_secs_us)} min ({_pct(season.poss_pct_us)}) ·
+ Passes (touches) {season.passes_us} · Shots {season.shots_us}-{season.shots_them}</p>
 <h2>Where the ball was (season, by third)</h2>
 {territory_svg(season.territory)}
-<p class="caption">Ball-control = time in your team's tracked touch-chains (Trace
-doesn't feed opponent possession). Territory is thirds-based, not pixel tracking.</p>
+<p class="caption">Ball-control = time in your team's tracked touch-chains. The %
+is that time as a share of a nominal 90-minute match — it reads low because
+touch-chains are notable sequences, not every touch, and Trace doesn't feed
+opponent possession. Territory is thirds-based, not pixel tracking.</p>
 <table><thead><tr><th>Date</th><th>Opponent</th><th>Ball-control (min)</th>
-<th>Passes (touches)</th><th>Shots</th><th>Opp shots</th><th>Box</th><th>Att ⅓</th><th>Packing</th>
+<th>Poss %</th><th>Passes (touches)</th><th>Shots</th><th>Opp shots</th>
+<th>Box</th><th>Att ⅓</th><th>Packing</th>
 </tr></thead><tbody>{rows}</tbody></table>
 </body></html>"""
     Path(path).write_text(doc, encoding="utf-8")
@@ -232,7 +259,7 @@ USERS_SELF_TOKEN_URL = "https://teams.traceup.com/webapp/users/self/token"
 
 TEAM_GAMES_Q = ("query teamGames($team_id: Int!, $token: UserToken!) { "
                 "teamGames(team_id: $team_id, token: $token) { "
-                "game_id status full_date access { allowed } "
+                "game_id status full_date approx_half_duration access { allowed } "
                 "home_team { team_id name title } away_team { team_id name title } } }")
 
 # The `moments` field takes its own required `hash_key` argument, in addition

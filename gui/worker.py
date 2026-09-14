@@ -411,10 +411,12 @@ class Worker:
                     continue
                 opp = (game.get("away_team") if side == "home"
                        else game.get("home_team")) or {}
+                half = game.get("approx_half_duration") or 0
                 meta = analytics.GameMeta(game_id=num,
                                           date=(game.get("full_date") or "")[:10],
                                           opponent=opp.get("title") or opp.get("name") or "",
-                                          our_side=side)
+                                          our_side=side,
+                                          match_secs=half * 2)
                 out.append(analytics.compute_game_stats(moments, meta))
             except Exception:
                 LOG.exception("analytics failed for game %s", full_id)

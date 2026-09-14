@@ -66,14 +66,15 @@
     </div>
     <div id="season-map" class="pitch"></div>
     <p class="caption">Where the ball was, by third (from Trace touch-chains) —
-       not pixel tracking. "Ball-control" is time in your team's tracked
-       possession sequences; "Passes" counts ball-touches in them. (Trace's
-       feed doesn't include opponent possession.)</p>
+       not pixel tracking. "Ball-control" is minutes in your team's tracked
+       possession sequences, with its share of a nominal 90' match in parentheses
+       (reads low — touch-chains aren't every touch, and Trace doesn't feed
+       opponent possession). "Passes" counts ball-touches in those sequences.</p>
     <div id="analytics-empty" class="muted" hidden>Download some games first.</div>
     <div class="table-wrap">
-      <table id="analytics-table">
-        <thead><tr><th>Date</th><th>Opponent</th><th>Ball-control (min)</th>
-          <th>Passes (touches)</th><th>Shots</th><th>Opp shots</th><th>Box</th><th>Att ⅓</th><th>Packing</th></tr></thead>
+      <table id="analytics-table" class="compact">
+        <thead><tr><th>Date</th><th>Opp</th><th title="Minutes of ball-control (share of a nominal 90' match)">Ball-ctrl</th>
+          <th title="Passes (ball-touches in tracked sequences)">Pass</th><th>Shots</th><th title="Opponent shots">Opp</th><th title="Entries into the opponent box">Box</th><th title="Attacking-third entries">Att⅓</th><th title="Packing (opponents bypassed)">Pack</th></tr></thead>
         <tbody></tbody>
         <tfoot></tfoot>
       </table>

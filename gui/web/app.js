@@ -241,20 +241,25 @@ async function loadAnalytics() {
     empty.hidden = data.games.length > 0;
     data.games.forEach((g) => {
       const tr = document.createElement("tr");
-      const cells = [g.date, g.opponent, (g.poss_secs_us / 60).toFixed(1),
+      const ctrl = (g.poss_secs_us / 60).toFixed(1)
+        + (g.poss_pct_us == null ? "" : ` (${g.poss_pct_us}%)`);
+      const cells = [g.date, g.opponent, ctrl,
         g.passes_us, g.shots_us, g.shots_them, g.box_us, g.att_third_us,
         g.packing_us];
       cells.forEach((val) => {
         const td = document.createElement("td");
         td.textContent = val;
+        td.title = val;              // full value on hover (opponent may be truncated)
         tr.appendChild(td);
       });
       tr.addEventListener("click", () => { map.innerHTML = g.territory_svg; });
       tbody.appendChild(tr);
     });
     const s = data.season;
+    const sCtrl = (s.poss_secs_us / 60).toFixed(1)
+      + (s.poss_pct_us == null ? "" : ` (${s.poss_pct_us}%)`);
     tfoot.innerHTML = data.games.length
-      ? `<tr><td>Season</td><td>${s.games} games</td><td>${(s.poss_secs_us / 60).toFixed(1)}</td>`
+      ? `<tr><td>Season</td><td>${s.games} games</td><td>${sCtrl}</td>`
         + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.shots_them}</td>`
         + `<td>${s.box_us}</td><td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
       : "";
