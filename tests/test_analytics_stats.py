@@ -12,6 +12,7 @@ def test_stats_home():
     assert s.game_id == 1 and s.date == "2026-09-12" and s.opponent == "Latterman"
     assert s.poss_secs_us == 100.0        # H1 60s + H2 40s of our ball-control
     assert s.poss_pct_us == 50.0          # 100s of a 200s match
+    assert s.sequences_us == 2            # two home touch-chains
     assert s.passes_us == 7               # 3 + 4 touches ("?" excluded)
     assert s.shots_us == 2 and s.shots_them == 1
     assert s.box_us == 1                  # H2 has away-box

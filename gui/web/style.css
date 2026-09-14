@@ -53,6 +53,8 @@ label { display:block; margin:12px 0; }
 #analytics .spacer { flex:1; }
 #analytics .muted { color:var(--muted); font-size:13px; }
 #analytics .caption { font-size:12px; color:var(--muted); margin:8px 0; }
+#map-note { margin:6px 0 0; font-weight:600; color:var(--muted); }
+#map-note.warn { color:#e0a33e; }
 .seg-toggle { display:flex; gap:0; margin:8px 0; border:1px solid rgba(255,255,255,.14);
   border-radius:8px; overflow:hidden; width:fit-content; }
 .seg-toggle button { flex:none; background:transparent; color:var(--muted); border:0;

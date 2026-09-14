@@ -13,6 +13,7 @@ def test_split_whole_and_halves_home():
     # whole = both halves
     assert sp.whole.poss_secs_us == 100.0 and sp.whole.poss_pct_us == 50.0
     assert sp.whole.passes_us == 7
+    assert sp.whole.sequences_us == 2 and sp.first.sequences_us == 1 and sp.second.sequences_us == 1
 
     # first half = only H1 (60s, 3 touches, packing, shot; ends middle third)
     assert sp.first.poss_secs_us == 60.0 and sp.first.poss_pct_us == 60.0  # 60/100

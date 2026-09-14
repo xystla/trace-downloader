@@ -237,6 +237,13 @@ function ctrlText(st) {
     + (st.poss_pct_us == null ? "" : ` (${st.poss_pct_us}%)`);
 }
 
+function setMapNote(n) {
+  const note = el("map-note");
+  const base = `Territory from ${n} tracked sequence${n === 1 ? "" : "s"}`;
+  note.textContent = n < 3 ? `${base} — too few to read much into.` : `${base}.`;
+  note.classList.toggle("warn", n < 3);
+}
+
 function renderAnalytics() {
   const tbody = document.querySelector("#analytics-table tbody");
   const tfoot = document.querySelector("#analytics-table tfoot");
@@ -244,28 +251,34 @@ function renderAnalytics() {
   const empty = el("analytics-empty");
   const data = _analytics;
   if (!data) return;
-  map.innerHTML = data.season[_seg].territory_svg || "";
+  const season = data.season[_seg];
+  map.innerHTML = season.territory_svg || "";
+  setMapNote(season.sequences_us);
   tbody.innerHTML = "";
   empty.hidden = data.games.length > 0;
   data.games.forEach((g) => {
     const st = g[_seg];
     const tr = document.createElement("tr");
     const cells = [g.date, g.opponent, ctrlText(st), st.passes_us, st.shots_us,
-      st.shots_them, st.box_us, st.att_third_us, st.packing_us];
+      st.shots_them, st.box_us, st.att_third_us, st.packing_us, st.sequences_us];
     cells.forEach((val) => {
       const td = document.createElement("td");
       td.textContent = val;
       td.title = val;              // full value on hover (opponent may be truncated)
       tr.appendChild(td);
     });
-    tr.addEventListener("click", () => { map.innerHTML = st.territory_svg; });
+    tr.addEventListener("click", () => {
+      map.innerHTML = st.territory_svg;
+      setMapNote(st.sequences_us);
+    });
     tbody.appendChild(tr);
   });
-  const s = data.season[_seg];
+  const s = season;
   tfoot.innerHTML = data.games.length
     ? `<tr><td>Season</td><td>${s.games} games</td><td>${ctrlText(s)}</td>`
       + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.shots_them}</td>`
-      + `<td>${s.box_us}</td><td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
+      + `<td>${s.box_us}</td><td>${s.att_third_us}</td><td>${s.packing_us}</td>`
+      + `<td>${s.sequences_us}</td></tr>`
     : "";
 }
 

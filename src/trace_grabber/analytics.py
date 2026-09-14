@@ -86,6 +86,10 @@ class GameStats:
     att_third_us: int
     packing_us: int
     territory_us: Territory
+    # How many of our touch-chains these numbers rest on. Trace flags only a
+    # handful per game (often 1-2 per half), so with a tiny count the territory
+    # and per-half figures are noise — the UI shows this and flags low samples.
+    sequences_us: int = 0
     match_secs_us: float = 0.0  # carried for season-level % aggregation
 
 
@@ -101,6 +105,7 @@ def compute_game_stats(moments: list[dict], meta: GameMeta) -> GameStats:
         game_id=meta.game_id, date=meta.date, opponent=meta.opponent,
         poss_secs_us=poss_secs,
         poss_pct_us=poss_pct,
+        sequences_us=len(ours),
         match_secs_us=meta.match_secs,
         passes_us=sum(_touches(m) for m in ours),
         shots_us=sum(1 for m in moments if _has_kw(m, f"{us}-shot")),
@@ -146,16 +151,26 @@ class SeasonStats:
     att_third_us: int
     packing_us: int
     territory: Territory
+    sequences_us: int = 0        # total tracked touch-chains behind these figures
 
 
 def aggregate(stats: list[GameStats]) -> SeasonStats:
     n = len(stats)
     if not n:
-        return SeasonStats(0, 0.0, None, 0, 0, 0, 0, 0, 0, Territory(0.0, 0.0, 0.0))
-    mean = lambda xs: round(sum(xs) / n, 1)
+        return SeasonStats(0, 0.0, None, 0, 0, 0, 0, 0, 0, Territory(0.0, 0.0, 0.0), 0)
     poss_secs = round(sum(s.poss_secs_us for s in stats), 1)
     match_secs = sum(s.match_secs_us for s in stats)
     poss_pct = round(min(poss_secs / match_secs * 100, 100.0), 1) if match_secs else None
+    # Territory is duration-weighted (a game with one short sequence shouldn't
+    # count the same as a full game); this equals the true overall per-third share.
+    tot = sum(s.poss_secs_us for s in stats)
+    if tot:
+        wt = lambda pick: round(sum(pick(s) * s.poss_secs_us for s in stats) / tot, 1)
+        territory = Territory(wt(lambda s: s.territory_us.defensive),
+                              wt(lambda s: s.territory_us.middle),
+                              wt(lambda s: s.territory_us.offensive))
+    else:
+        territory = Territory(0.0, 0.0, 0.0)
     return SeasonStats(
         games=n,
         poss_secs_us=poss_secs,
@@ -166,11 +181,8 @@ def aggregate(stats: list[GameStats]) -> SeasonStats:
         box_us=sum(s.box_us for s in stats),
         att_third_us=sum(s.att_third_us for s in stats),
         packing_us=sum(s.packing_us for s in stats),
-        territory=Territory(
-            mean([s.territory_us.defensive for s in stats]),
-            mean([s.territory_us.middle for s in stats]),
-            mean([s.territory_us.offensive for s in stats]),
-        ),
+        territory=territory,
+        sequences_us=sum(s.sequences_us for s in stats),
     )
 
 
@@ -217,13 +229,13 @@ def _pct(p: float | None) -> str:
     return "—" if p is None else f"{p}%"
 
 
-_CSV_HEADER = ["date", "opponent", "ball_control_min", "possession_pct", "passes_us",
-               "shots_us", "shots_them", "box_us", "att_third_us", "packing_us",
-               "terr_def", "terr_mid", "terr_off"]
+_CSV_HEADER = ["date", "opponent", "sequences", "ball_control_min", "possession_pct",
+               "passes_us", "shots_us", "shots_them", "box_us", "att_third_us",
+               "packing_us", "terr_def", "terr_mid", "terr_off"]
 
 
 def _row(s: "GameStats") -> list:
-    return [s.date, s.opponent, _mins(s.poss_secs_us),
+    return [s.date, s.opponent, s.sequences_us, _mins(s.poss_secs_us),
             "" if s.poss_pct_us is None else s.poss_pct_us, s.passes_us,
             s.shots_us, s.shots_them, s.box_us, s.att_third_us, s.packing_us,
             s.territory_us.defensive, s.territory_us.middle, s.territory_us.offensive]
@@ -235,7 +247,8 @@ def export_csv(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
         w.writerow(_CSV_HEADER)
         for s in stats:
             w.writerow(_row(s))
-        w.writerow(["SEASON", f"{season.games} games", _mins(season.poss_secs_us),
+        w.writerow(["SEASON", f"{season.games} games", season.sequences_us,
+                    _mins(season.poss_secs_us),
                     "" if season.poss_pct_us is None else season.poss_pct_us,
                     season.passes_us, season.shots_us, season.shots_them,
                     season.box_us, season.att_third_us, season.packing_us,
@@ -246,7 +259,7 @@ def export_csv(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
 def export_html(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
     e = _html.escape
     rows = "".join(
-        f"<tr><td>{e(s.date)}</td><td>{e(s.opponent)}</td>"
+        f"<tr><td>{e(s.date)}</td><td>{e(s.opponent)}</td><td>{s.sequences_us}</td>"
         f"<td>{_mins(s.poss_secs_us)}</td><td>{_pct(s.poss_pct_us)}</td>"
         f"<td>{s.passes_us}</td><td>{s.shots_us}</td><td>{s.shots_them}</td>"
         f"<td>{s.box_us}</td><td>{s.att_third_us}</td><td>{s.packing_us}</td></tr>"
@@ -263,11 +276,13 @@ th{{background:#f3f5f6}} .caption{{font-size:12px;color:#667;margin:6px 0}}
  Passes (touches) {season.passes_us} · Shots {season.shots_us}-{season.shots_them}</p>
 <h2>Where the ball was (season, by third)</h2>
 {territory_svg(season.territory)}
-<p class="caption">Ball-control = time in your team's tracked touch-chains. The %
-is that time as a share of a nominal 90-minute match — it reads low because
-touch-chains are notable sequences, not every touch, and Trace doesn't feed
-opponent possession. Territory is thirds-based, not pixel tracking.</p>
-<table><thead><tr><th>Date</th><th>Opponent</th><th>Ball-control (min)</th>
+<p class="caption">Based on {season.sequences_us} tracked sequence(s). Ball-control
+= time in your team's tracked touch-chains; the % is that time as a share of a
+nominal 90-minute match (reads low — touch-chains are notable sequences, not every
+touch, and Trace doesn't feed opponent possession). "Seq" is how many sequences a
+row rests on — with only a few, the territory and per-half figures are unreliable.
+Territory is thirds-based, not pixel tracking.</p>
+<table><thead><tr><th>Date</th><th>Opponent</th><th>Seq</th><th>Ball-control (min)</th>
 <th>Poss %</th><th>Passes (touches)</th><th>Shots</th><th>Opp shots</th>
 <th>Box</th><th>Att ⅓</th><th>Packing</th>
 </tr></thead><tbody>{rows}</tbody></table>
