@@ -6,6 +6,7 @@ docs/superpowers/specs/2026-09-14-team-analytics-design.md.
 """
 import csv
 import html as _html
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -223,3 +224,52 @@ th{{background:#f3f5f6}} caption{{font-size:12px;color:#667;margin:6px}}
 </tr></thead><tbody>{rows}</tbody></table>
 </body></html>"""
     Path(path).write_text(doc)
+
+
+GQL_URL = "https://go.traceup.com/traceid-prod/graphql"
+USERS_SELF_URL = "https://teams.traceup.com/webapp/users/self"
+USERS_SELF_TOKEN_URL = "https://teams.traceup.com/webapp/users/self/token"
+
+TEAM_GAMES_Q = ("query teamGames($team_id: Int!, $token: UserToken!) { "
+                "teamGames(team_id: $team_id, token: $token) { "
+                "game_id status full_date access { allowed } "
+                "home_team { team_id name title } away_team { team_id name title } } }")
+
+GAME_Q = ("query game($game_id: Int!, $hash_key: String!, $token: UserToken) { "
+          "game(game_id: $game_id, hash_key: $hash_key, token: $token) { "
+          "access { allowed } "
+          "moments { type side start_third end_third thirds duration "
+          "trace_numbers keywords } } }")
+
+
+def graphql(request, query: str, variables: dict) -> dict:
+    body = json.dumps({"query": query, "variables": variables})
+    resp = request.post(GQL_URL, data=body,
+                        headers={"content-type": "application/json"}, timeout=20000)
+    j = resp.json()
+    if j.get("errors") or "data" not in j:
+        raise RuntimeError(f"graphql error: {j.get('errors')}")
+    return j["data"]
+
+
+def user_token(request) -> dict:
+    self_j = request.get(USERS_SELF_URL, timeout=12000).json()
+    user_id = ((self_j.get("data") or {}).get("user_id"))
+    tok_j = request.get(USERS_SELF_TOKEN_URL, timeout=12000).json()
+    data = tok_j.get("data") or {}
+    return {"user_id": user_id,
+            "token": data.get("token"),
+            "timestamp": data.get("timestamp")}
+
+
+def fetch_team_games(request, team_id: int, token: dict) -> dict:
+    data = graphql(request, TEAM_GAMES_Q, {"team_id": team_id, "token": token})
+    return {g["game_id"]: g for g in (data.get("teamGames") or [])}
+
+
+def fetch_game_moments(request, game_id: int, hash_key: str, token: dict):
+    data = graphql(request, GAME_Q,
+                   {"game_id": game_id, "hash_key": hash_key, "token": token})
+    game = data.get("game") or {}
+    allowed = bool((game.get("access") or {}).get("allowed"))
+    return allowed, (game.get("moments") or [])
