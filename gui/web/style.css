@@ -47,3 +47,18 @@ label { display:block; margin:12px 0; }
 #connectUrl { width:100%; margin-top:8px; padding:9px; border:0; border-radius:8px;
   background:var(--bg); color:var(--text); font-size:13px; }
 #connectUrlBtn { margin-top:8px; }
+#analytics { max-width:640px; width:92vw; max-height:85vh; overflow:auto; }
+#analytics h2 { margin:0; font-size:17px; }
+#analytics .row { display:flex; align-items:center; gap:8px; }
+#analytics .spacer { flex:1; }
+#analytics .muted { color:var(--muted); font-size:13px; }
+#analytics .caption { font-size:12px; color:var(--muted); margin:8px 0; }
+.pitch svg { max-width:100%; height:auto; display:block; }
+.table-wrap { overflow-x:auto; }
+#analytics-table { width:100%; border-collapse:collapse; margin-top:6px; font-size:13px; }
+#analytics-table th, #analytics-table td { border-bottom:1px solid rgba(255,255,255,.08);
+  padding:6px 8px; text-align:center; white-space:nowrap; }
+#analytics-table tbody tr { cursor:pointer; }
+#analytics-table tbody tr:hover { background:var(--bg); }
+#analytics-table tfoot td { font-weight:600; }
+#analytics .row button { flex:none; padding:6px 10px; font-size:13px; }
