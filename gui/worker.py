@@ -382,13 +382,16 @@ class Worker:
         team_slug = acct.team_urls[0].rstrip("/").split("/")[-1]
         request = self._ctx.request
 
-        token = analytics.user_token(request)
-        hash_key = analytics.user_hash_key(request)
-        team_id = analytics.team_numeric_id(request, team_slug)
-        if not (token.get("token") and team_id):
+        try:
+            token = analytics.user_token(request)
+            hash_key = analytics.user_hash_key(request)
+            team_id = analytics.team_numeric_id(request, team_slug)
+            if not (token.get("token") and team_id):
+                return []
+            games_by_id = analytics.fetch_team_games(request, team_id, token)
+        except Exception:
+            LOG.exception("analytics setup failed")
             return []
-
-        games_by_id = analytics.fetch_team_games(request, team_id, token)
         done = load_state(acct.state_path(DATA))   # ids like "hjmwnzo2-13787132"
         out = []
         for full_id in done:

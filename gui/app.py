@@ -171,36 +171,47 @@ class Api:
         return {"ok": True, "output_dir": path}
 
     def get_analytics(self):
-        games = self._w().compute_analytics()
-        season = analytics.aggregate(games)
-        return {
-            "games": [{**asdict(g), "territory_svg": analytics.territory_svg(g.territory_us)}
-                      for g in games],
-            "season": asdict(season),
-            "season_territory_svg": analytics.territory_svg(season.territory),
-        }
+        try:
+            games = self._w().compute_analytics()
+            season = analytics.aggregate(games)
+            return {
+                "games": [{**asdict(g), "territory_svg": analytics.territory_svg(g.territory_us, dark=True)}
+                          for g in games],
+                "season": asdict(season),
+                "season_territory_svg": analytics.territory_svg(season.territory, dark=True),
+            }
+        except Exception:
+            empty = analytics.aggregate([])
+            return {
+                "games": [],
+                "season": asdict(empty),
+                "season_territory_svg": analytics.territory_svg(empty.territory, dark=True),
+            }
 
     def export_analytics(self, fmt):
         if not self._window:
             return {"ok": False}
-        games = self._w().compute_analytics()
-        season = analytics.aggregate(games)
-        ext = "csv" if fmt == "csv" else "html"
-        # SAVE_DIALOG was renamed to FileDialog.SAVE in newer pywebview
-        # (mirrors the FOLDER shim in choose_output_dir).
-        save = getattr(getattr(webview, "FileDialog", None), "SAVE", None)
-        if save is None:
-            save = webview.SAVE_DIALOG
         try:
-            res = self._window.create_file_dialog(
-                save, save_filename=f"team-analytics.{ext}")
+            games = self._w().compute_analytics()
+            season = analytics.aggregate(games)
+            ext = "csv" if fmt == "csv" else "html"
+            # SAVE_DIALOG was renamed to FileDialog.SAVE in newer pywebview
+            # (mirrors the FOLDER shim in choose_output_dir).
+            save = getattr(getattr(webview, "FileDialog", None), "SAVE", None)
+            if save is None:
+                save = webview.SAVE_DIALOG
+            try:
+                res = self._window.create_file_dialog(
+                    save, save_filename=f"team-analytics.{ext}")
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+            if not res:
+                return {"ok": False}  # cancelled
+            path = Path(res[0] if isinstance(res, (list, tuple)) else res)
+            (analytics.export_csv if fmt == "csv" else analytics.export_html)(games, season, path)
+            return {"ok": True, "path": str(path)}
         except Exception as e:
             return {"ok": False, "error": str(e)}
-        if not res:
-            return {"ok": False}  # cancelled
-        path = Path(res[0] if isinstance(res, (list, tuple)) else res)
-        (analytics.export_csv if fmt == "csv" else analytics.export_html)(games, season, path)
-        return {"ok": True, "path": str(path)}
 
     def save_settings(self, settings):
         path = DATA / "config.yaml"

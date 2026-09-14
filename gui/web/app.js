@@ -230,28 +230,39 @@ el("closeSettings").onclick = () => el("settings").close();
 
 // ---- team analytics dialog: lazy-loaded (fetched fresh each time it opens) ----
 async function loadAnalytics() {
-  const data = await api().get_analytics();
   const tbody = document.querySelector("#analytics-table tbody");
   const tfoot = document.querySelector("#analytics-table tfoot");
   const map = el("season-map");
   const empty = el("analytics-empty");
-  map.innerHTML = data.season_territory_svg || "";
-  tbody.innerHTML = "";
-  empty.hidden = data.games.length > 0;
-  data.games.forEach((g) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${g.date}</td><td>${g.opponent}</td><td>${g.poss_pct_us}%</td>`
-      + `<td>${g.passes_us}</td><td>${g.shots_us}</td><td>${g.box_us}</td>`
-      + `<td>${g.att_third_us}</td><td>${g.packing_us}</td>`;
-    tr.addEventListener("click", () => { map.innerHTML = g.territory_svg; });
-    tbody.appendChild(tr);
-  });
-  const s = data.season;
-  tfoot.innerHTML = data.games.length
-    ? `<tr><td>Season</td><td>${s.games} games</td><td>${s.poss_pct_us}%</td>`
-      + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.box_us}</td>`
-      + `<td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
-    : "";
+  try {
+    const data = await api().get_analytics();
+    map.innerHTML = data.season_territory_svg || "";
+    tbody.innerHTML = "";
+    empty.hidden = data.games.length > 0;
+    data.games.forEach((g) => {
+      const tr = document.createElement("tr");
+      const cells = [g.date, g.opponent, `${g.poss_pct_us}%`, g.passes_us,
+        g.shots_us, g.box_us, g.att_third_us, g.packing_us];
+      cells.forEach((val) => {
+        const td = document.createElement("td");
+        td.textContent = val;
+        tr.appendChild(td);
+      });
+      tr.addEventListener("click", () => { map.innerHTML = g.territory_svg; });
+      tbody.appendChild(tr);
+    });
+    const s = data.season;
+    tfoot.innerHTML = data.games.length
+      ? `<tr><td>Season</td><td>${s.games} games</td><td>${s.poss_pct_us}%</td>`
+        + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.box_us}</td>`
+        + `<td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
+      : "";
+  } catch (e) {
+    tbody.innerHTML = "";
+    tfoot.innerHTML = "";
+    empty.hidden = false;
+    empty.textContent = "Couldn't load analytics — check your connection and try again.";
+  }
 }
 el("analyticsBtn").onclick = async () => {
   el("analytics").showModal();

@@ -187,7 +187,7 @@ def _row(s: "GameStats") -> list:
 
 
 def export_csv(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(_CSV_HEADER)
         for s in stats:
@@ -223,7 +223,7 @@ th{{background:#f3f5f6}} caption{{font-size:12px;color:#667;margin:6px}}
 <th>Passes (touches)</th><th>Shots</th><th>Box</th><th>Att ⅓</th><th>Packing</th>
 </tr></thead><tbody>{rows}</tbody></table>
 </body></html>"""
-    Path(path).write_text(doc)
+    Path(path).write_text(doc, encoding="utf-8")
 
 
 GQL_URL = "https://go.traceup.com/traceid-prod/graphql"
@@ -262,12 +262,12 @@ def user_token(request) -> dict:
             "timestamp": data.get("timestamp")}
 
 
-def fetch_team_games(request, team_id: int, token: dict) -> dict:
+def fetch_team_games(request, team_id: int, token: dict) -> dict[int, dict]:
     data = graphql(request, TEAM_GAMES_Q, {"team_id": team_id, "token": token})
     return {g["game_id"]: g for g in (data.get("teamGames") or [])}
 
 
-def fetch_game_moments(request, game_id: int, hash_key: str, token: dict):
+def fetch_game_moments(request, game_id: int, hash_key: str, token: dict) -> tuple[bool, list[dict]]:
     data = graphql(request, GAME_Q,
                    {"game_id": game_id, "hash_key": hash_key, "token": token})
     game = data.get("game") or {}
