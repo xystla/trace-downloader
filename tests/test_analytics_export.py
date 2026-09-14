@@ -4,10 +4,10 @@ from trace_grabber.analytics import (export_csv, export_html, GameStats,
 
 def _sample():
     g = GameStats(game_id=1, date="2026-09-12", opponent="Latterman",
-                  poss_pct_us=66.7, passes_us=7, passes_them=3, shots_us=2,
+                  poss_secs_us=600.0, passes_us=7, shots_us=2,
                   shots_them=1, box_us=1, att_third_us=1, packing_us=1,
                   territory_us=Territory(30.0, 30.0, 40.0))
-    season = SeasonStats(1, 66.7, 7, 3, 2, 1, 1, 1, 1, Territory(30.0, 30.0, 40.0))
+    season = SeasonStats(1, 600.0, 7, 2, 1, 1, 1, 1, Territory(30.0, 30.0, 40.0))
     return [g], season
 
 def test_csv_has_header_row_and_game(tmp_path):
@@ -15,8 +15,9 @@ def test_csv_has_header_row_and_game(tmp_path):
     p = tmp_path / "stats.csv"
     export_csv(games, season, p)
     lines = p.read_text().strip().splitlines()
-    assert lines[0].startswith("date,opponent,possession_pct,passes")
+    assert lines[0].startswith("date,opponent,ball_control_min,passes")
     assert "Latterman" in lines[1]
+    assert "10.0" in lines[1]             # 600s -> 10.0 min
     assert any(row.lower().startswith("season") or "TOTAL" in row for row in lines)
 
 def test_html_is_self_contained_with_svg(tmp_path):

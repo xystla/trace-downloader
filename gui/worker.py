@@ -384,7 +384,7 @@ class Worker:
 
         try:
             token = analytics.user_token(request)
-            hash_key = analytics.user_hash_key(request)
+            hash_key = analytics.user_hash_key(request, token)
             team_id = analytics.team_numeric_id(request, team_slug)
             if not (token.get("token") and team_id):
                 return []

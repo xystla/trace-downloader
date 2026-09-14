@@ -241,8 +241,9 @@ async function loadAnalytics() {
     empty.hidden = data.games.length > 0;
     data.games.forEach((g) => {
       const tr = document.createElement("tr");
-      const cells = [g.date, g.opponent, `${g.poss_pct_us}%`, g.passes_us,
-        g.shots_us, g.box_us, g.att_third_us, g.packing_us];
+      const cells = [g.date, g.opponent, (g.poss_secs_us / 60).toFixed(1),
+        g.passes_us, g.shots_us, g.shots_them, g.box_us, g.att_third_us,
+        g.packing_us];
       cells.forEach((val) => {
         const td = document.createElement("td");
         td.textContent = val;
@@ -253,9 +254,9 @@ async function loadAnalytics() {
     });
     const s = data.season;
     tfoot.innerHTML = data.games.length
-      ? `<tr><td>Season</td><td>${s.games} games</td><td>${s.poss_pct_us}%</td>`
-        + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.box_us}</td>`
-        + `<td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
+      ? `<tr><td>Season</td><td>${s.games} games</td><td>${(s.poss_secs_us / 60).toFixed(1)}</td>`
+        + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.shots_them}</td>`
+        + `<td>${s.box_us}</td><td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
       : "";
   } catch (e) {
     tbody.innerHTML = "";
