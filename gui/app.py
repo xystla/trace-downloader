@@ -171,28 +171,40 @@ class Api:
         return {"ok": True, "output_dir": path}
 
     def get_analytics(self):
+        # Payload carries three segments per game and for the season — whole
+        # match, first half, second half — so the UI can toggle between them.
+        def stat(gs):
+            return {**asdict(gs),
+                    "territory_svg": analytics.territory_svg(gs.territory_us, dark=True)}
+
+        def season_seg(seasonstats):
+            return {**asdict(seasonstats),
+                    "territory_svg": analytics.territory_svg(seasonstats.territory, dark=True)}
+
         try:
-            games = self._w().compute_analytics()
-            season = analytics.aggregate(games)
-            return {
-                "games": [{**asdict(g), "territory_svg": analytics.territory_svg(g.territory_us, dark=True)}
-                          for g in games],
-                "season": asdict(season),
-                "season_territory_svg": analytics.territory_svg(season.territory, dark=True),
-            }
+            splits = self._w().compute_analytics()
         except Exception:
-            empty = analytics.aggregate([])
-            return {
-                "games": [],
-                "season": asdict(empty),
-                "season_territory_svg": analytics.territory_svg(empty.territory, dark=True),
-            }
+            splits = []
+        games = [{"game_id": sp.whole.game_id, "date": sp.whole.date,
+                  "opponent": sp.whole.opponent,
+                  "whole": stat(sp.whole), "first": stat(sp.first),
+                  "second": stat(sp.second)}
+                 for sp in splits]
+        return {
+            "games": games,
+            "season": {
+                "whole": season_seg(analytics.aggregate([sp.whole for sp in splits])),
+                "first": season_seg(analytics.aggregate([sp.first for sp in splits])),
+                "second": season_seg(analytics.aggregate([sp.second for sp in splits])),
+            },
+        }
 
     def export_analytics(self, fmt):
         if not self._window:
             return {"ok": False}
         try:
-            games = self._w().compute_analytics()
+            splits = self._w().compute_analytics()
+            games = [sp.whole for sp in splits]   # exports are whole-game
             season = analytics.aggregate(games)
             ext = "csv" if fmt == "csv" else "html"
             # SAVE_DIALOG was renamed to FileDialog.SAVE in newer pywebview

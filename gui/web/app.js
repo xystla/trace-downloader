@@ -229,47 +229,68 @@ el("settingsBtn").onclick = () => el("settings").showModal();
 el("closeSettings").onclick = () => el("settings").close();
 
 // ---- team analytics dialog: lazy-loaded (fetched fresh each time it opens) ----
-async function loadAnalytics() {
+let _analytics = null;   // last-loaded payload
+let _seg = "whole";      // "whole" | "first" | "second"
+
+function ctrlText(st) {
+  return (st.poss_secs_us / 60).toFixed(1)
+    + (st.poss_pct_us == null ? "" : ` (${st.poss_pct_us}%)`);
+}
+
+function renderAnalytics() {
   const tbody = document.querySelector("#analytics-table tbody");
   const tfoot = document.querySelector("#analytics-table tfoot");
   const map = el("season-map");
   const empty = el("analytics-empty");
-  try {
-    const data = await api().get_analytics();
-    map.innerHTML = data.season_territory_svg || "";
-    tbody.innerHTML = "";
-    empty.hidden = data.games.length > 0;
-    data.games.forEach((g) => {
-      const tr = document.createElement("tr");
-      const ctrl = (g.poss_secs_us / 60).toFixed(1)
-        + (g.poss_pct_us == null ? "" : ` (${g.poss_pct_us}%)`);
-      const cells = [g.date, g.opponent, ctrl,
-        g.passes_us, g.shots_us, g.shots_them, g.box_us, g.att_third_us,
-        g.packing_us];
-      cells.forEach((val) => {
-        const td = document.createElement("td");
-        td.textContent = val;
-        td.title = val;              // full value on hover (opponent may be truncated)
-        tr.appendChild(td);
-      });
-      tr.addEventListener("click", () => { map.innerHTML = g.territory_svg; });
-      tbody.appendChild(tr);
+  const data = _analytics;
+  if (!data) return;
+  map.innerHTML = data.season[_seg].territory_svg || "";
+  tbody.innerHTML = "";
+  empty.hidden = data.games.length > 0;
+  data.games.forEach((g) => {
+    const st = g[_seg];
+    const tr = document.createElement("tr");
+    const cells = [g.date, g.opponent, ctrlText(st), st.passes_us, st.shots_us,
+      st.shots_them, st.box_us, st.att_third_us, st.packing_us];
+    cells.forEach((val) => {
+      const td = document.createElement("td");
+      td.textContent = val;
+      td.title = val;              // full value on hover (opponent may be truncated)
+      tr.appendChild(td);
     });
-    const s = data.season;
-    const sCtrl = (s.poss_secs_us / 60).toFixed(1)
-      + (s.poss_pct_us == null ? "" : ` (${s.poss_pct_us}%)`);
-    tfoot.innerHTML = data.games.length
-      ? `<tr><td>Season</td><td>${s.games} games</td><td>${sCtrl}</td>`
-        + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.shots_them}</td>`
-        + `<td>${s.box_us}</td><td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
-      : "";
+    tr.addEventListener("click", () => { map.innerHTML = st.territory_svg; });
+    tbody.appendChild(tr);
+  });
+  const s = data.season[_seg];
+  tfoot.innerHTML = data.games.length
+    ? `<tr><td>Season</td><td>${s.games} games</td><td>${ctrlText(s)}</td>`
+      + `<td>${s.passes_us}</td><td>${s.shots_us}</td><td>${s.shots_them}</td>`
+      + `<td>${s.box_us}</td><td>${s.att_third_us}</td><td>${s.packing_us}</td></tr>`
+    : "";
+}
+
+async function loadAnalytics() {
+  const empty = el("analytics-empty");
+  try {
+    _analytics = await api().get_analytics();
+    renderAnalytics();
   } catch (e) {
-    tbody.innerHTML = "";
-    tfoot.innerHTML = "";
+    document.querySelector("#analytics-table tbody").innerHTML = "";
+    document.querySelector("#analytics-table tfoot").innerHTML = "";
     empty.hidden = false;
     empty.textContent = "Couldn't load analytics — check your connection and try again.";
   }
 }
+
+document.querySelectorAll("#seg-toggle button").forEach((b) => {
+  b.onclick = () => {
+    _seg = b.dataset.seg;
+    document.querySelectorAll("#seg-toggle button").forEach((x) =>
+      x.classList.toggle("on", x === b));
+    renderAnalytics();
+  };
+});
+
 el("analyticsBtn").onclick = async () => {
   el("analytics").showModal();
   await loadAnalytics();

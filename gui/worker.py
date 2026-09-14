@@ -417,9 +417,9 @@ class Worker:
                                           opponent=opp.get("title") or opp.get("name") or "",
                                           our_side=side,
                                           match_secs=half * 2)
-                out.append(analytics.compute_game_stats(moments, meta))
+                out.append(analytics.compute_split(moments, meta))
             except Exception:
                 LOG.exception("analytics failed for game %s", full_id)
                 continue
-        out.sort(key=lambda s: s.date, reverse=True)
+        out.sort(key=lambda s: s.whole.date, reverse=True)
         return out

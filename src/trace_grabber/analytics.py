@@ -7,7 +7,7 @@ docs/superpowers/specs/2026-09-14-team-analytics-design.md.
 import csv
 import html as _html
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 _THIRDS = ("defensive", "middle", "offensive")
@@ -109,6 +109,28 @@ def compute_game_stats(moments: list[dict], meta: GameMeta) -> GameStats:
         att_third_us=sum(1 for m in ours if m.get("end_third") == "offensive"),
         packing_us=sum(1 for m in ours if _has_kw(m, "packing")),
         territory_us=compute_territory(moments, us),
+    )
+
+
+@dataclass
+class GameSplit:
+    """One game's stats for the whole match and each half."""
+    whole: GameStats
+    first: GameStats   # half 1
+    second: GameStats  # half 2
+
+
+def compute_split(moments: list[dict], meta: GameMeta) -> GameSplit:
+    """Whole-game plus per-half stats. Per-half possession % divides by one half
+    (match_secs / 2); whole divides by the full match."""
+    half_secs = (meta.match_secs / 2) if meta.match_secs else 0.0
+    half_meta = replace(meta, match_secs=half_secs)
+    h1 = [m for m in moments if m.get("half") == 1]
+    h2 = [m for m in moments if m.get("half") == 2]
+    return GameSplit(
+        whole=compute_game_stats(moments, meta),
+        first=compute_game_stats(h1, half_meta),
+        second=compute_game_stats(h2, half_meta),
     )
 
 
@@ -267,7 +289,7 @@ TEAM_GAMES_Q = ("query teamGames($team_id: Int!, $token: UserToken!) { "
 GAME_Q = ("query game($game_id: Int!, $hash_key: String!, $token: UserToken) { "
           "game(game_id: $game_id, hash_key: $hash_key, token: $token) { "
           "access { allowed } "
-          "moments(hash_key: $hash_key) { type side start_third end_third thirds "
+          "moments(hash_key: $hash_key) { type side half start_third end_third thirds "
           "duration trace_numbers keywords } } }")
 
 # hash_key lives on the GraphQL profile, not the users/self REST payload.
