@@ -99,3 +99,40 @@ def compute_game_stats(moments: list[dict], meta: GameMeta) -> GameStats:
         packing_us=sum(1 for m in ours if _has_kw(m, "packing")),
         territory_us=compute_territory(moments, us),
     )
+
+
+@dataclass
+class SeasonStats:
+    games: int
+    poss_pct_us: float
+    passes_us: int
+    passes_them: int
+    shots_us: int
+    shots_them: int
+    box_us: int
+    att_third_us: int
+    packing_us: int
+    territory: Territory
+
+
+def aggregate(stats: list[GameStats]) -> SeasonStats:
+    n = len(stats)
+    if not n:
+        return SeasonStats(0, 0.0, 0, 0, 0, 0, 0, 0, 0, Territory(0.0, 0.0, 0.0))
+    mean = lambda xs: round(sum(xs) / n, 1)
+    return SeasonStats(
+        games=n,
+        poss_pct_us=mean([s.poss_pct_us for s in stats]),
+        passes_us=sum(s.passes_us for s in stats),
+        passes_them=sum(s.passes_them for s in stats),
+        shots_us=sum(s.shots_us for s in stats),
+        shots_them=sum(s.shots_them for s in stats),
+        box_us=sum(s.box_us for s in stats),
+        att_third_us=sum(s.att_third_us for s in stats),
+        packing_us=sum(s.packing_us for s in stats),
+        territory=Territory(
+            mean([s.territory_us.defensive for s in stats]),
+            mean([s.territory_us.middle for s in stats]),
+            mean([s.territory_us.offensive for s in stats]),
+        ),
+    )
