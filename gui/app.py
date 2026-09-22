@@ -55,6 +55,11 @@ class Api:
         self._game_cache = {g.id: g for g in games}
         return games_view(games, done)
 
+    def get_games(self):
+        games, done, errors = self._w().games_result()
+        self._game_cache = {g.id: g for g in games}
+        return {"games": games_view(games, done), "errors": errors}
+
     def _run_download(self, game_id):
         g = self._game_cache.get(game_id)
         if g is None:

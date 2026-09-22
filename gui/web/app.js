@@ -36,9 +36,31 @@ async function refresh() {
   }
   el("version").textContent = "TraceDown v" + (s.version || "");
   await renderAccounts();
-  const games = await api().list_games();
-  renderGames(games);
+  await loadGames();
 }
+
+async function loadGames() {
+  const status = el("gamesStatus");
+  const retry = el("retryGames");
+  retry.hidden = true;
+  status.textContent = "Loading games…";
+  renderGames([]);
+  el("downloadAll").disabled = true;
+  try {
+    const result = await api().get_games();
+    renderGames(result.games);
+    status.textContent = result.errors.length
+      ? "Some games could not be loaded. " + result.errors.join("\n")
+      : result.games.length ? "" : "No available games were found for this account. Check that your current team is connected.";
+    retry.hidden = result.games.length > 0 && result.errors.length === 0;
+    el("downloadAll").disabled = result.games.length === 0;
+  } catch (error) {
+    status.textContent = "Could not load games. " + String(error);
+    retry.hidden = false;
+  }
+}
+
+el("retryGames").onclick = loadGames;
 
 async function renderAccounts() {
   const data = await api().list_accounts();

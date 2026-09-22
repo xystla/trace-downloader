@@ -75,6 +75,12 @@ class Worker:
     def list_games(self):
         return self.submit(lambda: self._list_games())
 
+    def games_result(self):
+        def load():
+            games, done = self._list_games()
+            return games, done, list(self._games_errors)
+        return self.submit(load)
+
     def download_game(self, game_id, team_id, date, opponent, on_progress):
         return self.submit(lambda: self._download_game(game_id, team_id, date, opponent, on_progress))
 
@@ -170,8 +176,15 @@ class Worker:
     def _list_games(self):
         acct = self._active()
         out = []
+        self._games_errors = []
         for url in (acct.team_urls if acct else []):
-            out.extend(list_games(self._page, url))
+            try:
+                out.extend(list_games(self._page, url))
+            except Exception as error:
+                LOG.exception("game listing failed for %s", url)
+                self._games_errors.append(str(error))
+        out = sorted({game.id: game for game in out}.values(),
+                     key=lambda game: game.date, reverse=True)
         # auto-name a freshly-migrated account from its games
         if acct and acct.label.startswith("Account ") and out and " vs. " in out[0].title:
             acct.label = out[0].title.split(" vs. ", 1)[0].strip()

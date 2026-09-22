@@ -1,4 +1,5 @@
 import html as _html
+from html.parser import HTMLParser
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,12 +17,42 @@ class Game:
     opponent: str | None
     title: str        # raw label, e.g. "Demo FC vs. Rovers"
 
-# Each game card is an <a class="GameLink GameCard"> ... </a>. Split on the
-# opening tag so each block holds one card's poster URL, title, and date.
-_CARD_SPLIT = re.compile(r'(?=<a class="GameLink GameCard")')
+# Match cards structurally: attribute/class order and nested labels can vary.
 _POSTER_RE = re.compile(r'/teams/([a-z0-9]+)/games/([a-z0-9]+-\d+)/')
-_TITLE_RE = re.compile(r'<p class="two-lines label[^"]*">([^<]*)</p>')
-_DATE_RE = re.compile(r'<p class="subtitle[^"]*">([^<]*)</p>')
+
+class _Cards(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.cards = []
+        self.card = None
+        self.field = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = set(attrs.get("class", "").split())
+        if tag == "a" and {"GameLink", "GameCard"} <= classes:
+            self.card = {"title": "", "date": "", "poster": None}
+        if self.card is None:
+            return
+        for value in attrs.values():
+            match = _POSTER_RE.search(value or "")
+            if match:
+                self.card["poster"] = match.groups()
+        if tag == "p":
+            self.field = "title" if "label" in classes else "date" if "subtitle" in classes else None
+
+    def handle_data(self, data):
+        if self.card is not None and self.field:
+            self.card[self.field] += data
+
+    def handle_endtag(self, tag):
+        if tag == "p":
+            self.field = None
+        if tag == "a" and self.card is not None:
+            self.cards.append(self.card)
+            self.card = None
+            self.field = None
+
 _DATE_HEAD = re.compile(r'([A-Z][a-z]+ \d{1,2}, \d{4})')
 
 def _iso_date(text: str) -> str:
@@ -55,26 +86,22 @@ def team_paths(current_url: str, page_html: str) -> list[str]:
 def parse_games(page_html: str) -> list[Game]:
     games: list[Game] = []
     seen: set[str] = set()
-    for block in _CARD_SPLIT.split(page_html):
-        pm = _POSTER_RE.search(block)
-        if not pm:
+    parser = _Cards()
+    parser.feed(page_html)
+    for card in parser.cards:
+        if not card["poster"]:
             continue
-        team_id, gid = pm.group(1), pm.group(2)
+        team_id, gid = card["poster"]
         if gid in seen:
             continue
         seen.add(gid)
-        try:
-            tm = _TITLE_RE.search(block)
-            title = _html.unescape(tm.group(1).strip()) if tm else ""
-            dm = _DATE_RE.search(block)
-            date = _iso_date(_html.unescape(dm.group(1))) if dm else ""
-            opponent = title.split(" vs. ", 1)[1].strip() if " vs. " in title else None
-        except Exception:
-            title, date, opponent = "", "", None  # never let one card blank the list
+        title = card["title"].strip()
+        date = _iso_date(card["date"])
+        opponent = title.split(" vs. ", 1)[1].strip() if " vs. " in title else None
         games.append(Game(id=gid, team_id=team_id, date=date, opponent=opponent, title=title))
     return games
 
-def list_games(page: Page, team_url: str, max_games: int = 60, max_scrolls: int = 15) -> list[Game]:
+def _list_page_games(page: Page, team_url: str, max_games: int = 60, max_scrolls: int = 15) -> list[Game]:
     page.goto(team_url, wait_until="domcontentloaded")
     page.wait_for_selector("a.GameLink.GameCard", timeout=20000)
     seen = 0
@@ -85,7 +112,51 @@ def list_games(page: Page, team_url: str, max_games: int = 60, max_scrolls: int 
         seen = len(cards)
         page.mouse.wheel(0, 20000)
         page.wait_for_timeout(1200)
-    return parse_games(page.content())[:max_games]
+    games = parse_games(page.content())
+    if not games:
+        raise RuntimeError("The team page loaded, but its game cards could not be read.")
+    return games[:max_games]
+
+def _list_api_games(request, team_url, max_games):
+    # Reuse the authenticated teamGames API already used by analytics when
+    # Trace's rendered game cards are unavailable or have changed.
+    from . import analytics
+    slug = team_url.rstrip("/").rsplit("/", 1)[-1]
+    team_id = analytics.team_numeric_id(request, slug)
+    if not team_id:
+        raise RuntimeError("This team was not found in your Trace account.")
+    token = analytics.user_token(request)
+    if not token.get("token"):
+        raise RuntimeError("Trace did not return a session token. Reconnect your account.")
+    rows = analytics.fetch_team_games(request, team_id, token)
+    games = []
+    for row in rows.values():
+        if row.get("status") != "ready" or not (row.get("access") or {}).get("allowed"):
+            continue
+        side = analytics.our_side_for(row, team_id)
+        if side is None:
+            continue
+        ours = row.get(side + "_team") or {}
+        other = row.get("away_team" if side == "home" else "home_team") or {}
+        opponent = other.get("title") or other.get("name") or ""
+        games.append(Game(id=f"{slug}-{row['game_id']}", team_id=slug,
+                          date=(row.get("full_date") or "")[:10], opponent=opponent,
+                          title=(ours.get("title") or slug) + " vs. " + opponent))
+    return sorted(games, key=lambda g: (g.date, int(g.id.rsplit("-", 1)[1])), reverse=True)[:max_games]
+
+
+def list_games(page: Page, team_url: str, max_games: int = 60, max_scrolls: int = 15) -> list[Game]:
+    try:
+        return _list_page_games(page, team_url, max_games, max_scrolls)
+    except Exception as page_error:
+        try:
+            return _list_api_games(page.context.request, team_url, max_games)
+        except Exception as api_error:
+            raise RuntimeError(
+                f"Could not load games for {team_url}. "
+                f"Team page: {page_error}. Trace API: {api_error}"
+            ) from api_error
+
 
 def list_new_games(page: Page, team_url: str, state_path: Path) -> list[Game]:
     games = list_games(page, team_url)
