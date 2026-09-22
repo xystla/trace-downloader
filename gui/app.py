@@ -33,7 +33,7 @@ class Api:
         self._window = window
 
     def get_status(self):
-        last = json.loads(LAST_RUN.read_text()) if LAST_RUN.exists() else None
+        last = json.loads(LAST_RUN.read_text(encoding="utf-8")) if LAST_RUN.exists() else None
         cfg = load_config(DATA / "config.yaml")
         has_account = bool(self._w().list_accounts()["accounts"])
         logged_in = self._w().logged_in()
@@ -164,9 +164,9 @@ class Api:
             return {"ok": False}  # cancelled
         path = res[0] if isinstance(res, (list, tuple)) else res
         cfgpath = DATA / "config.yaml"
-        data = yaml.safe_load(cfgpath.read_text())
+        data = yaml.safe_load(cfgpath.read_text(encoding="utf-8"))
         data["output_dir"] = path
-        cfgpath.write_text(yaml.safe_dump(data, sort_keys=False))
+        cfgpath.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         self._w().reload_config()
         return {"ok": True, "output_dir": path}
 
@@ -227,12 +227,12 @@ class Api:
 
     def save_settings(self, settings):
         path = DATA / "config.yaml"
-        data = yaml.safe_load(path.read_text())
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
         if "quality" in settings:
             data["quality"] = settings["quality"]
         if "combine" in settings:
             data["combine_halves"] = bool(settings["combine"])
-        path.write_text(yaml.safe_dump(data, sort_keys=False))
+        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         self._w().reload_config()
         return {"ok": True}
 
@@ -243,6 +243,14 @@ class Api:
 
 def main():
     from trace_grabber import firstrun, tools
+    from gui.runtime import prepare_renderer, show_startup_error
+    try:
+        renderer = prepare_renderer()
+    except Exception as error:
+        if sys.platform != "win32":
+            raise
+        show_startup_error(error)
+        return 1
     firstrun.init()
     tools.setup_browser_env()
     api = Api()
@@ -251,17 +259,19 @@ def main():
     window = webview.create_window("TraceDown", str(first), js_api=api,
                                    width=520, height=720)
     api.set_window(window)
+    setup = None
     if need_setup:
         # Only when we showed the setup screen: install Chromium, then load the app.
         def _setup():
             try:
                 tools.install_chromium()
-            except Exception:
-                pass
-            window.load_url("file://" + str(WEB / "index.html"))
-        import threading
-        threading.Thread(target=_setup, daemon=True).start()
-    webview.start()
+            except Exception as error:
+                window.evaluate_js("document.getElementById('msg').textContent = " +
+                                   json.dumps("Video engine setup failed. Reopen TraceDown to retry. " + str(error)))
+                return
+            window.load_url((WEB / "index.html").resolve().as_uri())
+        setup = _setup
+    webview.start(setup, gui=renderer)
 
 
 if __name__ == "__main__":

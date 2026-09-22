@@ -6,7 +6,7 @@ def test_build_cmd_basic():
     cmd = build_ffmpeg_cmd("https://x/v.m3u8", Path("/out/a.mp4"), headers={})
     assert cmd[0] == "ffmpeg"
     assert "https://x/v.m3u8" in cmd
-    assert "/out/a.mp4" in cmd
+    assert str(Path("/out/a.mp4")) in cmd
     assert "copy" in cmd
 
 def test_build_cmd_includes_headers():

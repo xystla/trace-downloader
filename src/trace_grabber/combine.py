@@ -10,6 +10,13 @@ def build_concat_cmd(parts, dest, list_file):
         "-i", str(list_file), "-c", "copy", str(dest),
     ]
 
+
+def concat_entry(path):
+    # FFmpeg's list syntax is not shell syntax. Forward slashes also work on
+    # Windows; escape apostrophes outside the quoted portion of each filename.
+    name = path.as_posix().replace("'", "'\\''")
+    return f"file '{name}'\n"
+
 def combine(parts, dest) -> None:
     """Losslessly concatenate the part files into dest (raises on failure)."""
     parts = [Path(p) for p in parts]
@@ -18,9 +25,9 @@ def combine(parts, dest) -> None:
         raise RuntimeError(f"combine: missing input(s): {missing}")
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         for p in parts:
-            f.write(f"file '{p.resolve()}'\n")
+            f.write(concat_entry(p.resolve()))
         list_file = Path(f.name)
     try:
         cmd = build_concat_cmd(parts, dest, list_file)

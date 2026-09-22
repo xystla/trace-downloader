@@ -5,7 +5,7 @@ def load_state(path: Path) -> set[str]:
     p = Path(path)
     if not p.exists():
         return set()
-    return set(json.loads(p.read_text()))
+    return set(json.loads(p.read_text(encoding="utf-8")))
 
 def mark_done(path: Path, game_id: str) -> None:
     done = load_state(path)

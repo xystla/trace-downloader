@@ -33,9 +33,13 @@ Go to the [**Releases**](../../releases/latest) page and download the zip for yo
 
 ### Windows
 
-1. Unzip `TraceDown-Windows.zip`.
+Requires Windows 10/11 (x64) and the [Microsoft Edge WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). If TraceDown reports that WebView2 is missing, install the runtime and reopen the app.
+
+1. Extract **all files** from `TraceDown-Windows.zip` into a folder. Keep the `_internal` folder alongside the executable.
 2. Double-click `TraceDown.exe`.
 3. If Windows SmartScreen appears, click **More info → Run anyway** (one-time prompt for unsigned apps).
+
+The bundled Chromium engine downloads videos; WebView2 displays the app itself. Both are needed. Older builds may display a JavaScript “Syntax error” when WebView2 is missing and Windows falls back to Internet Explorer.
 
 ---
 

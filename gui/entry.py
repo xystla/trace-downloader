@@ -9,8 +9,21 @@ def _selftest() -> int:
     web = paths.resource_dir() / "gui" / "web" / "index.html"
     ff = tools.ffmpeg_path()
     try:
+        import subprocess
         from playwright._impl._driver import compute_driver_executable
-        driver = bool(compute_driver_executable())
+        driver = all(Path(p).is_file() for p in compute_driver_executable())
+        subprocess.run([ff, "-version"], check=True, capture_output=True,
+                       **tools.subprocess_flags())
+        if sys.platform == "win32":
+            from gui.runtime import prepare_renderer
+            prepare_renderer()
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch()
+                page = browser.new_page()
+                script = (web.parent / "app.js").read_text(encoding="utf-8")
+                page.evaluate("script => { new Function(script); }", script)
+                browser.close()
     except Exception as e:
         driver = False
         print("driver error:", e)
@@ -27,7 +40,7 @@ def main():
         from trace_grabber.main import run
         sys.exit(run("new"))
     from gui.app import main as gui_main
-    gui_main()
+    sys.exit(gui_main())
 
 if __name__ == "__main__":
     main()

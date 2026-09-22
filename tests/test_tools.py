@@ -1,9 +1,9 @@
 def test_ffmpeg_prefers_bundled(monkeypatch, tmp_path):
     from trace_grabber import tools, paths
-    binp = tmp_path / "bin"; binp.mkdir(); (binp / "ffmpeg").write_text("x")
+    binp = tmp_path / "bin"; binp.mkdir(); (binp / tools._ffmpeg_name()).write_text("x")
     monkeypatch.setattr(paths, "resource_dir", lambda: tmp_path)
     monkeypatch.setattr(paths, "data_dir", lambda: tmp_path / "data")
-    assert tools.ffmpeg_path() == str(binp / "ffmpeg")
+    assert tools.ffmpeg_path() == str(binp / tools._ffmpeg_name())
 
 def test_ffmpeg_falls_back_to_which(monkeypatch, tmp_path):
     from trace_grabber import tools, paths

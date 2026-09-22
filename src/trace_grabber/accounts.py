@@ -52,7 +52,7 @@ def load_accounts(root) -> Accounts:
     p = _path(root)
     if not p.exists():
         return _migrate(root)
-    data = json.loads(p.read_text())
+    data = json.loads(p.read_text(encoding="utf-8"))
     items = [Account(**a) for a in data["accounts"]]
     return Accounts(active_id=data.get("active"), items=items)
 
@@ -65,7 +65,7 @@ def _migrate(root) -> Accounts:
     team_urls = []
     cfg = root / "config.yaml"
     if cfg.exists():
-        team_urls = yaml.safe_load(cfg.read_text()).get("team_urls", []) or []
+        team_urls = yaml.safe_load(cfg.read_text(encoding="utf-8")).get("team_urls", []) or []
     acct = Account(id="account-1", label="Account 1",
                    profile_dir=".chrome-profile", team_urls=team_urls)
     accounts = Accounts(active_id=acct.id, items=[acct])

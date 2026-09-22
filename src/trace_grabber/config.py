@@ -13,7 +13,7 @@ class Config:
     combine_halves: bool = True
 
 def load_config(path: Path) -> Config:
-    data = yaml.safe_load(Path(path).read_text())
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     quality = data["quality"]
     if quality not in VALID_QUALITY:
         raise ValueError(f"quality must be one of {VALID_QUALITY}, got {quality!r}")
