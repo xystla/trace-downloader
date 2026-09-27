@@ -15,11 +15,11 @@ Trace records each game in two halves. TraceDown downloads both and **automatica
 
 ## Download
 
-Go to the [**Releases**](../../releases/latest) page and download the zip for your platform:
+Go to the [**Releases**](../../releases/latest) page and download the file for your platform:
 
 - `TraceDown-macOS-AppleSilicon.zip` for Mac (Apple Silicon: M1/M2/M3/M4)
 - `TraceDown-macOS-Intel.zip` for Mac (Intel)
-- `TraceDown-Windows.zip` for Windows (x64)
+- `TraceDown-Windows-Setup.exe` for Windows 10/11 (x64) — an installer
 
 ---
 
@@ -35,9 +35,11 @@ Go to the [**Releases**](../../releases/latest) page and download the zip for yo
 
 Requires Windows 10/11 (x64) and the [Microsoft Edge WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). If TraceDown reports that WebView2 is missing, install the runtime and reopen the app.
 
-1. Extract **all files** from `TraceDown-Windows.zip` into a folder. Keep the `_internal` folder alongside the executable.
-2. Double-click `TraceDown.exe`.
+1. Download and run `TraceDown-Windows-Setup.exe`, then click **Next → Install → Finish**. It installs for the current user (no admin prompt) and adds desktop and Start-menu shortcuts.
+2. Launch **TraceDown** from the shortcut. To remove it later, use **Settings → Apps → TraceDown → Uninstall**.
 3. If Windows SmartScreen appears, click **More info → Run anyway** (one-time prompt for unsigned apps).
+
+> Installing (rather than unzipping) is also what avoids the `Failed to resolve Python.Runtime.Loader.Initialize` startup error — files written by an installer aren't blocked by Windows the way files extracted from a downloaded zip are.
 
 The bundled Chromium engine downloads videos; WebView2 displays the app itself. Both are needed. Older builds may display a JavaScript “Syntax error” when WebView2 is missing and Windows falls back to Internet Explorer.
 
@@ -76,4 +78,4 @@ git tag v1.x
 git push origin v1.x
 ```
 
-The Actions workflow (`.github/workflows/build.yml`) runs a matrix build on `macos-latest` and `windows-latest`, produces `TraceDown-macOS.zip` and `TraceDown-Windows.zip`, and attaches both to the GitHub Release.
+The Actions workflow (`.github/workflows/build.yml`) runs a matrix build on macOS and Windows, produces the macOS `.zip` bundles and a `TraceDown-Windows-Setup.exe` installer (built with Inno Setup from `packaging/TraceDown.iss`), and attaches them to the GitHub Release.
