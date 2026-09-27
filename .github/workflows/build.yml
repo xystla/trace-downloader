@@ -135,9 +135,6 @@ jobs:
         if: runner.os == 'macOS'
         # ditto preserves the signature + stapled notarization ticket inside the zip.
         run: cd dist && ditto -c -k --keepParent "TraceDown.app" "../TraceDown-${{ matrix.label }}.zip"
-      - name: Zip (Windows)
-        if: runner.os == 'Windows'
-        run: Compress-Archive -Path "dist/TraceDown/*" -DestinationPath TraceDown-Windows.zip
       - name: Build installer (Windows)
         # Wrap the PyInstaller folder into a per-user installer. Files written by
         # an installer aren't tagged with the Mark of the Web, so pythonnet's
