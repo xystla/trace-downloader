@@ -138,13 +138,35 @@ jobs:
       - name: Zip (Windows)
         if: runner.os == 'Windows'
         run: Compress-Archive -Path "dist/TraceDown/*" -DestinationPath TraceDown-Windows.zip
+      - name: Build installer (Windows)
+        # Wrap the PyInstaller folder into a per-user installer. Files written by
+        # an installer aren't tagged with the Mark of the Web, so pythonnet's
+        # Python.Runtime.dll loads instead of being blocked (the zip is not).
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $ref = "${{ github.ref_name }}"
+          if ($ref -match '^v\d') {
+            $version = $ref.TrimStart('v')
+          } else {
+            $version = (python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])").Trim()
+          }
+          Write-Host "Installer version: $version"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=$version" "packaging\TraceDown.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: TraceDownloader-${{ matrix.label }}
-          path: TraceDown-*.zip
+          path: |
+            TraceDown-*.zip
+            TraceDown-Windows-Setup.exe
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: TraceDown-*.zip
+          files: |
+            TraceDown-*.zip
+            TraceDown-Windows-Setup.exe
