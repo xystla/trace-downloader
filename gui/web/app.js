@@ -77,30 +77,45 @@ async function renderAccounts() {
   sel.appendChild(add);
 }
 
+const VISIBLE_GAMES = 5;   // show the most-recent few; the rest hide behind a button
+
+function appendGame(box, g) {
+  const div = document.createElement("div");
+  div.className = "game"; div.id = "g-" + g.id;
+  div.innerHTML = `
+    <div class="thumb"></div>
+    <div class="meta">
+      <div class="date">${g.date}</div>
+      <div class="opp">vs ${g.opponent || g.title}</div>
+      <div class="bar" style="display:none"><i></i></div>
+      <div class="speed"></div>
+    </div>
+    <div class="action"></div>`;
+  const action = div.querySelector(".action");
+  if (g.state === "saved") {
+    action.innerHTML = `<span class="saved">✓ Saved</span>`;
+  } else {
+    setDownloadBtn(action, g.id);
+  }
+  box.appendChild(div);
+  loadThumb(div, g);
+}
+
 function renderGames(games) {
   const box = el("games");
   box.innerHTML = "";
-  for (const g of games) {
-    const div = document.createElement("div");
-    div.className = "game"; div.id = "g-" + g.id;
-    div.innerHTML = `
-      <div class="thumb"></div>
-      <div class="meta">
-        <div class="date">${g.date}</div>
-        <div class="opp">vs ${g.opponent || g.title}</div>
-        <div class="bar" style="display:none"><i></i></div>
-        <div class="speed"></div>
-      </div>
-      <div class="action"></div>`;
-    const action = div.querySelector(".action");
-    if (g.state === "saved") {
-      action.innerHTML = `<span class="saved">✓ Saved</span>`;
-    } else {
-      setDownloadBtn(action, g.id);
-    }
-    box.appendChild(div);
-    loadThumb(div, g);
-  }
+  // Games arrive newest-first, so the first few are the most recent.
+  games.slice(0, VISIBLE_GAMES).forEach((g) => appendGame(box, g));
+  const rest = games.slice(VISIBLE_GAMES);
+  if (rest.length === 0) return;
+  const more = document.createElement("button");
+  more.className = "show-more";
+  more.textContent = `Show all ${games.length} games`;
+  more.onclick = () => {
+    more.remove();
+    rest.forEach((g) => appendGame(box, g));
+  };
+  box.appendChild(more);
 }
 
 function loadThumb(div, g) {

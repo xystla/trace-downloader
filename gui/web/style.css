@@ -20,6 +20,8 @@ button.primary { width:100%; background:var(--accent); color:#06231a; font-weigh
 .bar { height:6px; background:#0a0e13; border-radius:3px; overflow:hidden; }
 .bar > i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
 .saved { color:var(--accent); font-size:13px; }
+.show-more { width:100%; margin-top:4px; background:var(--card); color:var(--muted); font-size:13px; }
+.show-more:hover { color:var(--text); }
 footer { display:flex; gap:8px; margin-top:16px; }
 footer button { flex:1; }
 dialog { background:var(--card); color:var(--text); border:0; border-radius:14px; }
