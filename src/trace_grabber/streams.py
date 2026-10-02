@@ -11,9 +11,16 @@ import re
 
 from . import selectors as S
 
-# Tried in order; whichever returns 200 for a given game is used.
-# Newer games (e.g. "superfly" camera) are served under the qaapi prefix.
-PREFIXES = ["api", "us-east-2/soccer/api", "us-east-2/soccer/qaapi"]
+# Tried in order; whichever returns 200 for a given game is used. Trace serves a
+# game's video from the region bucket it was processed in and 403s the others, so
+# every live region must be listed. As of Oct 2026 new games land in us-west-2
+# (newer "superfly"-camera games under its qaapi prefix); older games remain in
+# us-east-2, and some predate the regioned paths entirely (bare "api").
+PREFIXES = [
+    "us-west-2/soccer/api", "us-west-2/soccer/qaapi",
+    "us-east-2/soccer/api", "us-east-2/soccer/qaapi",
+    "api",
+]
 
 def prefix_from_html(html: str, team_id: str, game_id: str) -> str | None:
     """Extract the real URL prefix for a game from its watch-page HTML.

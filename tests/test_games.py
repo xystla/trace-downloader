@@ -63,11 +63,13 @@ def test_unrelated_posters_are_not_games():
     assert parse_games('<img src="/teams/demo/games/demo-123/poster.jpg">') == []
 
 
-def test_api_fallback_filters_access_and_sorts_newest(monkeypatch):
+def test_api_fallback_lists_ready_games_and_sorts_newest(monkeypatch):
+    # Trace's teamGames query returns access.allowed=None for every game, even
+    # ones that download fine, so listing keys only off status, never access.
     from trace_grabber import games, analytics
     monkeypatch.setattr(analytics, 'team_numeric_id', lambda *args: 5)
     monkeypatch.setattr(analytics, 'user_token', lambda *args: {'token': 'fake'})
-    def row(number, date, allowed=True, status='ready'):
+    def row(number, date, allowed=None, status='ready'):
         return {'game_id': number, 'full_date': date, 'status': status,
                 'access': {'allowed': allowed},
                 'home_team': {'team_id': 5, 'title': 'Our team'},
@@ -77,22 +79,51 @@ def test_api_fallback_filters_access_and_sorts_newest(monkeypatch):
         3: row(3, '2026-09-23', allowed=False),
         4: row(4, '2026-09-24', status='processing')})
     result = games._list_api_games(object(), 'https://go.traceup.com/traceid/team/demo', 60)
-    assert [g.id for g in result] == ['demo-2', 'demo-1']
+    # All three ready games are listed (incl. allowed=False/None); only the
+    # still-processing game 4 is excluded. Newest first.
+    assert [g.id for g in result] == ['demo-3', 'demo-2', 'demo-1']
     assert result[0].opponent == 'Rivals'
 
 
-def test_page_failure_uses_authenticated_api(monkeypatch):
+def test_api_fallback_lists_game_with_null_access(monkeypatch):
+    # Regression: in production every row arrives as access={'allowed': None};
+    # the ready game must still be listed, not silently dropped.
+    from trace_grabber import games, analytics
+    monkeypatch.setattr(analytics, 'team_numeric_id', lambda *args: 5)
+    monkeypatch.setattr(analytics, 'user_token', lambda *args: {'token': 'fake'})
+    monkeypatch.setattr(analytics, 'fetch_team_games', lambda *args: {
+        1: {'game_id': 1, 'full_date': '2026-10-02', 'status': 'ready',
+            'access': {'allowed': None},
+            'home_team': {'team_id': 5, 'title': 'Our team'},
+            'away_team': {'team_id': 8, 'title': 'Rivals'}}})
+    result = games._list_api_games(object(), 'https://go.traceup.com/traceid/team/demo', 60)
+    assert [g.id for g in result] == ['demo-1']
+
+
+def test_api_is_primary_and_page_is_not_touched(monkeypatch):
+    # Trace's rendered game cards are gone, so the fast, authoritative API is the
+    # primary source; the DOM scrape must not run (and cost 20s) when it succeeds.
     from types import SimpleNamespace
     from trace_grabber import games
-    def fail(*args):
-        raise RuntimeError('no cards')
-    monkeypatch.setattr(games, '_list_page_games', fail)
     request = object()
-    def fallback(req, url, limit):
+    def primary(req, url, limit):
         assert req is request
-        return ['recovered']
-    monkeypatch.setattr(games, '_list_api_games', fallback)
-    assert games.list_games(SimpleNamespace(context=SimpleNamespace(request=request)), 'team') == ['recovered']
+        return ['from-api']
+    def page_must_not_run(*args):
+        raise AssertionError('DOM scrape should not run when the API succeeds')
+    monkeypatch.setattr(games, '_list_api_games', primary)
+    monkeypatch.setattr(games, '_list_page_games', page_must_not_run)
+    assert games.list_games(SimpleNamespace(context=SimpleNamespace(request=request)), 'team') == ['from-api']
+
+
+def test_api_failure_falls_back_to_page(monkeypatch):
+    from types import SimpleNamespace
+    from trace_grabber import games
+    def fail_api(*args):
+        raise RuntimeError('API unavailable')
+    monkeypatch.setattr(games, '_list_api_games', fail_api)
+    monkeypatch.setattr(games, '_list_page_games', lambda *a: ['from-page'])
+    assert games.list_games(SimpleNamespace(context=SimpleNamespace(request=None)), 'team') == ['from-page']
 
 
 def test_both_listing_failures_are_reported(monkeypatch):
@@ -105,5 +136,5 @@ def test_both_listing_failures_are_reported(monkeypatch):
         raise RuntimeError('API unavailable')
     monkeypatch.setattr(games, '_list_page_games', fail_page)
     monkeypatch.setattr(games, '_list_api_games', fail_api)
-    with pytest.raises(RuntimeError, match='page timed out.*API unavailable'):
+    with pytest.raises(RuntimeError, match='API unavailable.*page timed out'):
         games.list_games(SimpleNamespace(context=SimpleNamespace(request=None)), 'team')

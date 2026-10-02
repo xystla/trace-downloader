@@ -131,7 +131,10 @@ def _list_api_games(request, team_url, max_games):
     rows = analytics.fetch_team_games(request, team_id, token)
     games = []
     for row in rows.values():
-        if row.get("status") != "ready" or not (row.get("access") or {}).get("allowed"):
+        # Trace's teamGames query now returns access.allowed=None for every
+        # game — even ones that download fine — so it's not a usable gate here.
+        # List by readiness; real per-game access is resolved at download time.
+        if row.get("status") != "ready":
             continue
         side = analytics.our_side_for(row, team_id)
         if side is None:
@@ -146,16 +149,19 @@ def _list_api_games(request, team_url, max_games):
 
 
 def list_games(page: Page, team_url: str, max_games: int = 60, max_scrolls: int = 15) -> list[Game]:
+    # The authenticated teamGames API is primary: it's fast and authoritative.
+    # Trace's rendered game cards changed class (GameLink -> SharedGameCard), so
+    # the DOM scrape would just time out for 20s; keep it only as a last resort.
     try:
-        return _list_page_games(page, team_url, max_games, max_scrolls)
-    except Exception as page_error:
+        return _list_api_games(page.context.request, team_url, max_games)
+    except Exception as api_error:
         try:
-            return _list_api_games(page.context.request, team_url, max_games)
-        except Exception as api_error:
+            return _list_page_games(page, team_url, max_games, max_scrolls)
+        except Exception as page_error:
             raise RuntimeError(
                 f"Could not load games for {team_url}. "
-                f"Team page: {page_error}. Trace API: {api_error}"
-            ) from api_error
+                f"Trace API: {api_error}. Team page: {page_error}"
+            ) from page_error
 
 
 def list_new_games(page: Page, team_url: str, state_path: Path) -> list[Game]:

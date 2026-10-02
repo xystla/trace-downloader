@@ -35,13 +35,22 @@ class _Req:
     def get(self, url, timeout=0): return _Resp(any(s in url for s in self.ok))
 
 def test_resolve_prefix_new_api():
-    assert resolve_prefix(_Req(["/api/teams/"]), "t", "t-9") == "api"
+    # Anchor on the host so the substring can't also match the regioned
+    # ".../soccer/api/teams/" prefixes, which are tried first.
+    assert resolve_prefix(_Req(["traceup.com/api/teams/"]), "t", "t-9") == "api"
 
 def test_resolve_prefix_old_soccer():
     assert resolve_prefix(_Req(["/us-east-2/soccer/api/"]), "t", "t-9") == "us-east-2/soccer/api"
 
 def test_resolve_prefix_qaapi():
     assert resolve_prefix(_Req(["/us-east-2/soccer/qaapi/"]), "t", "t-9") == "us-east-2/soccer/qaapi"
+
+def test_resolve_prefix_us_west_api():
+    # Games migrated to us-west-2 (Oct 2026); the old us-east-2 prefixes 403.
+    assert resolve_prefix(_Req(["/us-west-2/soccer/api/"]), "t", "t-9") == "us-west-2/soccer/api"
+
+def test_resolve_prefix_us_west_qaapi():
+    assert resolve_prefix(_Req(["/us-west-2/soccer/qaapi/"]), "t", "t-9") == "us-west-2/soccer/qaapi"
 
 def test_resolve_prefix_none():
     assert resolve_prefix(_Req([]), "t", "t-9") is None
