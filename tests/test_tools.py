@@ -101,3 +101,26 @@ def test_a_leftover_from_a_killed_run_is_cleared_before_trying_again(tmp_path):
         assert not part.exists()
         part.write_bytes(b"video")
     assert [p.name for p in tmp_path.iterdir()] == ["a.mp4"]
+
+
+def test_browser_left_by_an_older_version_does_not_count_as_installed(tmp_path, monkeypatch):
+    from trace_grabber import tools
+    # After an update the app can carry a newer Playwright than the Chromium
+    # downloaded for the previous version: that must trigger the download again,
+    # not a launch that fails with "Executable doesn't exist".
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
+    monkeypatch.setattr(tools, "_wanted_browser_folders", lambda: ["chromium-1243", "chromium_headless_shell-1243"])
+    (tmp_path / "chromium-1223").mkdir()
+    (tmp_path / "chromium_headless_shell-1223").mkdir()
+    assert tools.chromium_installed() is False
+    (tmp_path / "chromium-1243").mkdir()
+    assert tools.chromium_installed() is False            # the headless one is what the app runs
+    (tmp_path / "chromium_headless_shell-1243").mkdir()
+    assert tools.chromium_installed() is True
+
+
+def test_wanted_browser_folders_come_from_the_playwright_in_use():
+    from trace_grabber import tools
+    folders = tools._wanted_browser_folders()
+    assert len(folders) == 2 and folders[0].startswith("chromium-") and folders[1].startswith("chromium_headless_shell-")
+    assert folders[0].split("-")[1] == folders[1].split("-")[1]

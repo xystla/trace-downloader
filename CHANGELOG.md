@@ -3,6 +3,9 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.4.2
+- Fixed the Mac app opening to an empty window after updating: it now downloads the newer video engine it needs instead of trying to use the old one.
+
 ## 1.4.1
 - Turning on automatic downloads now also sets TraceDown to open when you log in, so it is running to check for new games. You can still switch that off by itself in Settings.
 - Turning automatic downloads off stops TraceDown opening at login.

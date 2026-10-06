@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -82,8 +83,26 @@ def _browsers_path() -> Path:
         return Path.home() / "Library" / "Caches" / "ms-playwright"
     return Path.home() / ".cache" / "ms-playwright"
 
+def _wanted_browser_folders() -> list[str]:
+    """The browser folders this app's Playwright looks for, e.g. 'chromium-1223'
+    and 'chromium_headless_shell-1223'. Each Playwright version wants its own
+    Chromium build; empty if that can't be read."""
+    try:
+        import playwright
+        listing = Path(playwright.__file__).parent / "driver" / "package" / "browsers.json"
+        revisions = {b["name"]: b["revision"] for b in json.loads(listing.read_text(encoding="utf-8"))["browsers"]}
+        return [f"{name.replace('-', '_')}-{revisions[name]}" for name in ("chromium", "chromium-headless-shell")]
+    except Exception:
+        return []
+
 def chromium_installed() -> bool:
+    """Is the Chromium this version needs downloaded? One left behind by an
+    older version doesn't count: after an update the app must fetch the new one
+    rather than fail to start its browser."""
     base = _browsers_path()
+    wanted = _wanted_browser_folders()
+    if wanted:
+        return all((base / folder).is_dir() for folder in wanted)
     return base.exists() and any(base.glob("chromium-*"))
 
 def install_chromium() -> None:
