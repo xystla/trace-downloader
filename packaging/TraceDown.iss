@@ -55,3 +55,20 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Upgrading over a running copy fails with "DeleteFile failed; code 5/32"
+// because Windows locks TraceDown.exe and _internal\ while they are in use.
+// The scheduled background run (TraceDown.exe --run) has no window, so the
+// user can't see or close it and Setup's own close-applications prompt can't
+// either. Stop every running copy (and its ffmpeg/browser children) first.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM {#MyAppExeName}', '',
+       SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Give Windows a moment to release the file handles.
+  Sleep(500);
+  Result := '';
+end;
