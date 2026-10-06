@@ -1,15 +1,52 @@
 # TraceDown
 
-A personal-use desktop app that downloads your own Trace game videos as 1080p MP4 files, directly to your Mac or Windows PC. You supply your own Trace subscription login. No third-party accounts, no cloud storage.
+**Every game, yours to keep.**
 
-Trace records each game in two halves. TraceDown downloads both and **automatically stitches them into a single, continuous MP4**, losslessly, with no re-encoding or quality loss, so you get one ready-to-watch file per game instead of two clips. The result is a standard MP4 you can **upload straight to YouTube** (or Hudl, Google Drive, etc.) with no extra editing or conversion.
+TraceDown is a desktop app for Mac and Windows that saves your team's [Trace](https://traceup.com) soccer footage to your own computer, and gives you a better place to watch and study it. Full games, highlights, player recaps, stats and heat maps, all kept in tidy folders that are yours for good.
+
+You log in with your own Trace account. Nothing is uploaded anywhere else: no third-party accounts, no cloud storage.
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="TraceDown app window" width="720">
+  <img src="assets/screenshot.png" alt="TraceDown games view" width="820">
 </p>
 
 > Unofficial tool, not affiliated with or endorsed by Trace. For use with your own footage and your own Trace subscription.
-> *(Screenshot uses demo data.)*
+> *(Screenshots use demo team names, dates and scores.)*
+
+---
+
+## What it does
+
+- **Full games as one video.** Trace records each game in two halves. TraceDown downloads both and stitches them into a single 1080p MP4 with no re-encoding or quality loss, ready to watch or upload to YouTube, Hudl or Google Drive.
+- **Highlights.** Save a game's shots and box entries as clips, plus one Team Highlight Reel. No need to download the full game first.
+- **Player recaps.** Download Trace's follow-camera recap for any player, or all of them at once.
+- **A page for every game.** Watch in the app, jump to any shot from a match timeline, and see that game's stats underneath.
+- **Heat maps.** See where your players spent the game, drawn from Trace's player tracking.
+- **Season analytics.** Your record, goals, a season timeline, totals with per-game averages, and game-by-game charts. Stats are saved as they load, so they stay after Trace stops providing them.
+- **Automatic downloads.** TraceDown can check every 3 hours and save each new game with its highlights and recaps, running quietly in the menu bar or system tray.
+- **A download line.** Start as many downloads as you like; they run one after another with progress, Stop and Retry.
+- **Built-in updates.** The app tells you when a new version is ready and installs it for you.
+- **Light and dark themes**, and three ways to browse: cards, a list, or one game at a time.
+
+<p align="center">
+  <img src="assets/screenshots/game-page.png" alt="A game's page with the match timeline" width="410">
+  <img src="assets/screenshots/game-stats-heatmap.png" alt="Game stats and heat map" width="410">
+</p>
+<p align="center">
+  <img src="assets/screenshots/analytics.png" alt="Season analytics" width="410">
+  <img src="assets/screenshots/downloads.png" alt="The Downloads page" width="410">
+</p>
+
+Each game gets its own folder:
+
+```
+Trace Videos/<Team>/2026-10-03_vs-Rovers/
+  Full Game/           the game as one MP4
+  Highlights/          clips and the Team Highlight Reel
+  Player Highlights/   each player's recap
+  Analytics/           stats and heat map
+  Thumbnail/
+```
 
 ---
 
@@ -47,19 +84,23 @@ The bundled Chromium engine downloads videos; WebView2 displays the app itself. 
 
 ## First Launch
 
-On **macOS**, the first launch downloads the video engine (Chromium, ~170 MB, one time). The **Windows** build already includes it. Once ready:
+On **macOS**, the first launch downloads the video engine (Chromium, about 170 MB). It does this once, and again only when an update needs a newer one. The **Windows** build already includes it. Once ready:
 
-1. Click **+ Add account**.
-2. Log in with your Trace email address and the phone verification code.
+1. Choose how the app should look and whether new games should download automatically.
+2. Click **+ Add account** and log in with your Trace email address and the phone verification code.
 3. Your games appear in the list.
 
 ---
 
 ## Usage
 
-- Click a game to download it to your chosen output folder. Both halves are fetched and **automatically stitched into one continuous 1080p MP4**. The stitch is lossless (a direct stream copy, no re-encoding), and the separate half files are removed once the combined video is ready.
-- Prefer the two halves as separate files? Turn off **Combine halves** in Settings.
-- Turn on **Auto-download** in Settings to automatically check for and download new games every 3 hours.
+- **Full Game** downloads the game to your output folder as one continuous 1080p MP4. Prefer the two halves as separate files? Turn off **Combine both halves** in Settings.
+- **Highlights** saves the game's shots and box entries as clips, with a Team Highlight Reel.
+- **Player Recaps** lists the players Trace has a recap for; download one or all.
+- Click a game's thumbnail to open **its page**: video, match timeline, stats and heat map.
+- **Analytics** shows the whole season. Trace only provides stats for your most recent games, so open it now and then to let TraceDown keep them.
+- **Downloads** shows what is running and waiting.
+- In **Settings**, turn on automatic downloads to save new games every 3 hours. TraceDown then stays in the menu bar (Mac) or system tray (Windows) when you close the window. Quit it from there or from Settings.
 
 ---
 
@@ -77,5 +118,7 @@ To publish a new release, tag and push. GitHub Actions builds both installers an
 git tag v1.x
 git push origin v1.x
 ```
+
+Bump the version in `pyproject.toml` and `src/trace_grabber/paths.py` first, and add a section for it to `CHANGELOG.md`: that section becomes the release notes and the "What's new" list the app shows after updating.
 
 The Actions workflow (`.github/workflows/build.yml`) runs a matrix build on macOS and Windows, produces the macOS `.zip` bundles and a `TraceDown-Windows-Setup.exe` installer (built with Inno Setup from `packaging/TraceDown.iss`), and attaches them to the GitHub Release.
