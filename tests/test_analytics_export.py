@@ -32,3 +32,21 @@ def test_html_is_self_contained_with_svg(tmp_path):
     assert "Latterman" in html and "Passes (touches)" in html
     # no external assets (the SVG xmlns http://www.w3.org/2000/svg is not a fetch)
     assert 'src="http' not in html and 'href="http' not in html
+
+
+def test_exports_include_the_score_and_opponent_box_entries(tmp_path):
+    games, season = _sample()
+    games[0].box_them = 4
+    season.box_them = 4
+    export_csv(games, season, tmp_path / "s.csv", scores={1: "5-3"})
+    header, row = (tmp_path / "s.csv").read_text().strip().splitlines()[:2]
+    assert header.endswith(",box_them,score") and row.endswith(",4,5-3")
+    export_html(games, season, tmp_path / "r.html", scores={1: "5-3"})
+    html = (tmp_path / "r.html").read_text()
+    assert "<th>Score</th>" in html and "<td>5-3</td>" in html and "<th>Opp box</th>" in html
+
+
+def test_exports_still_work_without_scores(tmp_path):
+    games, season = _sample()
+    export_csv(games, season, tmp_path / "s.csv")
+    assert (tmp_path / "s.csv").read_text().strip().splitlines()[1].endswith(",0,")

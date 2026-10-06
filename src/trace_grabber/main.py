@@ -8,12 +8,12 @@ from playwright.sync_api import sync_playwright
 from .config import load_config
 from . import accounts as accts_mod
 from . import paths
-from .platform_tasks import notify
+from .platform_tasks import keep_awake, notify
 from .session import is_logged_in, cookie_headers
 from .games import list_games, list_new_games
-from . import streams, quality
+from . import analytics_sync, streams, quality
 from .download import download
-from .naming import build_path
+from .naming import build_path, game_folders
 from .state import mark_done
 
 DATA = paths.data_dir()
@@ -32,9 +32,11 @@ def _make_athlete_getter(page, team_url):
         return cache["id"]
     return getter
 
+@keep_awake()
 def _download_game(ctx, page, athlete_getter, headers, cfg, acct, game) -> int:
     masters = streams.resolve_masters(ctx.request, page, athlete_getter, game.team_id, game.id)
-    out_base = acct.output_dir(cfg.output_dir)
+    out_base = game_folders(acct.output_dir(cfg.output_dir), game.date or game.id,
+                            game.opponent).full_game
     saved = 0
     half_files = []
     for half, murl in enumerate(masters, 1):
@@ -57,7 +59,20 @@ def _download_game(ctx, page, athlete_getter, headers, cfg, acct, game) -> int:
             print(f"combine failed (keeping halves): {e}", file=sys.stderr)
     if saved and len(masters) >= 2:
         mark_done(acct.state_path(DATA), game.id)
+    if saved:
+        analytics_sync.save_for_download(ctx.request, acct, DATA, game.id,
+                                         videos_dir=acct.output_dir(cfg.output_dir))
     return saved
+
+@keep_awake()
+def _save_stats(ctx, acct, data_dir=DATA, videos_dir=None) -> None:
+    """Save stats for the newest games now (for accounts whose stats have been
+    viewed): Trace stops serving them once they are no longer among the team's
+    most recent, whether or not the app was opened."""
+    try:
+        analytics_sync.save_recent(ctx.request, acct, data_dir, videos_dir=videos_dir)
+    except Exception as e:
+        print(f"stats not saved for {acct.label}: {e}", file=sys.stderr)
 
 def _open(p, acct):
     ctx = p.chromium.launch_persistent_context(str(acct.profile_path(DATA)), headless=True)
@@ -111,6 +126,7 @@ def run(mode: str = "new") -> int:
                             total += _download_game(ctx, page, getter, headers, cfg, acct, game)
                         except Exception as e:
                             print(f"FAILED {game.id}: {e}", file=sys.stderr)
+                _save_stats(ctx, acct, videos_dir=acct.output_dir(cfg.output_dir))
             finally:
                 ctx.close()
         if total:

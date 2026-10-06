@@ -2,9 +2,33 @@ import os
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import paths
+
+def part_path(dest) -> Path:
+    """The temporary name a video is written under: 'game.mp4' -> 'game.part.mp4'
+    (still ending .mp4, so ffmpeg picks the right format)."""
+    dest = Path(dest)
+    return dest.with_name(f"{dest.stem}.part{dest.suffix}")
+
+@contextmanager
+def complete_or_nothing(dest):
+    """Yield a temporary path to write a video to. It takes its real name only if
+    the block finishes and produced something; otherwise it is deleted. A video
+    that exists under its real name is therefore always whole — one cut short by
+    an error, a cancel or the app closing is never mistaken for a saved one."""
+    dest = Path(dest)
+    part = part_path(dest)
+    part.unlink(missing_ok=True)
+    try:
+        yield part
+        if not part.exists() or part.stat().st_size == 0:
+            raise RuntimeError(f"nothing was written for {dest.name}")
+        part.replace(dest)
+    finally:
+        part.unlink(missing_ok=True)
 
 def subprocess_flags() -> dict:
     """Kwargs to keep child processes from popping a console window on Windows.

@@ -24,3 +24,21 @@ def test_one_failed_team_does_not_hide_other_teams(monkeypatch, tmp_path):
     account.team_urls = ['current']
     instance._list_games()
     assert instance._games_errors == []
+
+
+def test_loading_the_game_list_keeps_windows_awake(monkeypatch, tmp_path):
+    from trace_grabber import paths, platform_tasks as pt
+    monkeypatch.setattr(paths, 'data_dir', lambda: tmp_path)
+    from gui import worker
+    calls = []
+    monkeypatch.setattr(pt.sys, 'platform', 'win32')
+    monkeypatch.setattr(pt, '_set_execution_state', calls.append)
+    instance = worker.Worker.__new__(worker.Worker)
+    account = SimpleNamespace(team_urls=['current'], label='My team',
+                              state_path=lambda root: tmp_path / 'state.json')
+    instance._accounts = SimpleNamespace(active=account)
+    instance._page = object()
+    during = []
+    monkeypatch.setattr(worker, 'list_games', lambda page, url: during.append(list(calls)) or [])
+    instance._list_games()
+    assert during == [[pt.ES_CONTINUOUS | pt.ES_SYSTEM_REQUIRED]] and calls[-1] == pt.ES_CONTINUOUS

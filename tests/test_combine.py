@@ -31,7 +31,7 @@ def test_combine_unicode_and_apostrophe(tmp_path, monkeypatch):
         manifest = Path(cmd[cmd.index("-i") + 1])
         lists.append(manifest)
         assert manifest.read_text(encoding="utf-8") == module.concat_entry(source.resolve())
-        dest.write_bytes(b"combined")
+        Path(cmd[-1]).write_bytes(b"combined")
         return SimpleNamespace(returncode=0)
     monkeypatch.setattr(module.subprocess, "run", run)
     module.combine([source], dest)

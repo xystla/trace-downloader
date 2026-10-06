@@ -12,6 +12,7 @@ icon_file = os.path.join(ROOT, "assets", "icon.ico" if os.name == "nt" else "ico
 datas = [
     (os.path.join(ROOT, "gui", "web"), "gui/web"),
     (os.path.join(ROOT, "config.yaml"), "."),
+    (os.path.join(ROOT, "CHANGELOG.md"), "."),
     (os.path.join(ROOT, "assets", "icon.icns"), "assets"),
 ]
 if os.path.exists(os.path.join(ROOT, "assets", "icon.ico")):
@@ -23,7 +24,7 @@ if os.path.isdir(ms_playwright):
     datas.append((ms_playwright, "ms-playwright"))
 
 hidden = ["trace_grabber", "gui", "platformdirs", "yaml"]
-for pkg in ("playwright", "webview"):
+for pkg in ("playwright", "webview", "pystray"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

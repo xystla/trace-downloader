@@ -138,3 +138,24 @@ def test_both_listing_failures_are_reported(monkeypatch):
     monkeypatch.setattr(games, '_list_api_games', fail_api)
     with pytest.raises(RuntimeError, match='API unavailable.*page timed out'):
         games.list_games(SimpleNamespace(context=SimpleNamespace(request=None)), 'team')
+
+
+def test_scores_entered_on_trace_come_with_the_game_from_our_side(monkeypatch):
+    from trace_grabber import games, analytics
+    monkeypatch.setattr(analytics, 'team_numeric_id', lambda *args: 5)
+    monkeypatch.setattr(analytics, 'user_token', lambda *args: {'token': 'fake'})
+    def row(number, home, away):
+        return {'game_id': number, 'full_date': f'2026-10-0{number}', 'status': 'ready',
+                'home_team': {'team_id': home[0], 'title': 'H', 'score': home[1]},
+                'away_team': {'team_id': away[0], 'title': 'A', 'score': away[1]}}
+    monkeypatch.setattr(analytics, 'fetch_team_games', lambda *args: {
+        3: row(3, (5, 2), (8, 4)),          # we are home: lost 2-4
+        2: row(2, (8, 1), (5, 3)),          # we are away: won 3-1
+        1: row(1, (5, None), (8, None))})   # no score entered
+    result = games._list_api_games(object(), 'https://go.traceup.com/traceid/team/demo', 60)
+    assert [(g.score_us, g.score_them) for g in result] == [(2, 4), (3, 1), (None, None)]
+
+
+def test_game_list_query_asks_for_scores():
+    from trace_grabber.analytics import TEAM_GAMES_Q
+    assert TEAM_GAMES_Q.count("score") == 2

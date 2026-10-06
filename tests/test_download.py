@@ -34,3 +34,27 @@ def test_cmd_no_progress_flags_by_default():
     from pathlib import Path
     cmd = build_ffmpeg_cmd("https://x/v.m3u8", Path("/o/a.mp4"), headers={})
     assert "-progress" not in cmd
+
+
+def test_game_video_is_written_under_a_temporary_name_until_whole(tmp_path):
+    seen = {}
+    def run(cmd, **kwargs):
+        seen["target"] = Path(cmd[-1])
+        seen["target"].write_bytes(b"video")
+        return MagicMock(returncode=0, stderr="")
+    with patch("trace_grabber.download.subprocess.run", run):
+        download("https://x/v.m3u8", tmp_path / "a.mp4", headers={})
+    assert seen["target"].name == "a.part.mp4"
+    assert [p.name for p in tmp_path.iterdir()] == ["a.mp4"]
+
+
+def test_failed_game_download_leaves_no_file_that_looks_saved(tmp_path):
+    def run(cmd, **kwargs):
+        Path(cmd[-1]).write_bytes(b"half")
+        return MagicMock(returncode=1, stderr="boom")
+    with patch("trace_grabber.download.subprocess.run", run):
+        try:
+            download("https://x/v.m3u8", tmp_path / "a.mp4", headers={})
+        except RuntimeError:
+            pass
+    assert list(tmp_path.iterdir()) == []

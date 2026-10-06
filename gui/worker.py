@@ -10,14 +10,17 @@ from playwright.sync_api import sync_playwright
 
 from trace_grabber.config import load_config
 from trace_grabber import accounts as accts_mod
-from trace_grabber import analytics
+from trace_grabber import analytics_sync
+from trace_grabber import analytics, highlights, radar, recaps, segments
+from trace_grabber.analytics_sync import AnalyticsResult
 from trace_grabber import paths
+from trace_grabber.platform_tasks import keep_awake
 from trace_grabber.session import (is_logged_in, login_status, api_logged_in,
                                     discover_teams, cookie_headers)
 from trace_grabber.games import list_games
 from trace_grabber import streams, quality
 from trace_grabber.download import download
-from trace_grabber.naming import build_path
+from trace_grabber.naming import build_path, game_folders, saved_files
 from trace_grabber.state import load_state, mark_done
 from trace_grabber.progress import playlist_duration
 from trace_grabber.selectors import BASE_URL
@@ -84,8 +87,8 @@ class Worker:
     def download_game(self, game_id, team_id, date, opponent, on_progress):
         return self.submit(lambda: self._download_game(game_id, team_id, date, opponent, on_progress))
 
-    def get_thumb(self, team_id, game_id):
-        return self.submit(lambda: self._get_thumb(team_id, game_id))
+    def get_thumb(self, team_id, game_id, date=None, opponent=None):
+        return self.submit(lambda: self._get_thumb(team_id, game_id, date, opponent))
 
     def list_accounts(self):
         return self.submit(lambda: self._list_accounts())
@@ -120,8 +123,39 @@ class Worker:
     def reload_config(self):
         return self.submit(lambda: self._reload_config())
 
-    def compute_analytics(self):
-        return self.submit(lambda: self._compute_analytics())
+    def game_files(self, game_id, date, opponent):
+        return self.submit(lambda: self._game_files(date or game_id, opponent or None))
+
+    def export_highlights(self, game_id, date, opponent, on_progress=None):
+        return self.submit(lambda: self._export_highlights(game_id, date, opponent, on_progress))
+
+    def clip_counts(self, games):
+        return self.submit(lambda: self._clip_counts(games))
+
+    def folder_to_open(self, game_id, date, opponent):
+        return self.submit(lambda: self._folder_to_open(game_id, date, opponent))
+
+    def game_media(self, game_id, date, opponent):
+        return self.submit(lambda: self._game_media(game_id, date, opponent))
+
+    def list_highlights(self, game_id, date, opponent):
+        return self.submit(lambda: self._list_highlights(game_id, date, opponent))
+
+    def download_recap(self, game_id, date, opponent, user_id, on_progress=None):
+        return self.submit(
+            lambda: self._download_recap(game_id, date, opponent, user_id, on_progress))
+
+    def highlights_folder(self, game_id, date, opponent, kind="clips"):
+        return self.submit(lambda: self._highlights_folder(game_id, date, opponent, kind))
+
+    def save_stats(self):
+        return self.submit(lambda: self._save_stats())
+
+    def heatmap(self, game_id, date, opponent, fetch):
+        return self.submit(lambda: self._heatmap(game_id, date, opponent, fetch))
+
+    def compute_analytics(self, on_progress=None, refresh=False):
+        return self.submit(lambda: self._compute_analytics(on_progress, refresh))
 
     # ---- thread internals ----
 
@@ -173,6 +207,7 @@ class Worker:
         LOG.info("login check: %s", detail)
         return ok
 
+    @keep_awake()
     def _list_games(self):
         acct = self._active()
         out = []
@@ -191,13 +226,14 @@ class Worker:
             accts_mod.save_accounts(DATA, self._accounts)
         return out, load_state(acct.state_path(DATA)) if acct else set()
 
+    @keep_awake()
     def _download_game(self, game_id, team_id, date, opponent, on_progress):
         acct = self._active()
         headers = cookie_headers(self._ctx)
         masters = self._resolve_masters(team_id, game_id)
         LOG.info("download %s halves=%s acct=%s", game_id, len(masters), acct.id)
         saved = 0
-        out_base = acct.output_dir(self._cfg.output_dir)
+        out_base = self._folders(game_id, date, opponent).full_game
         half_files = []
         for half, murl in enumerate(masters, 1):
             if self._cancel.is_set():
@@ -232,6 +268,9 @@ class Worker:
                 LOG.info("combine failed for %s (keeping halves): %s", game_id, e)
         if saved and not self._cancel.is_set() and len(masters) >= 2:
             mark_done(acct.state_path(DATA), game_id)
+        if saved and not self._cancel.is_set():
+            analytics_sync.save_for_download(self._ctx.request, acct, DATA, game_id,
+                                             videos_dir=self._videos_dir())
         return saved
 
     def _resolve_masters(self, team_id, game_id):
@@ -247,14 +286,52 @@ class Worker:
                 self._athlete_id = streams.discover_athlete(self._page, acct.team_urls[0])
         return self._athlete_id
 
-    def _get_thumb(self, team_id, game_id):
-        """Fetch the game's poster with the session and return a data: URL (or None).
+    @keep_awake()
+    def _get_thumb(self, team_id, game_id, date=None, opponent=None):
+        """The game's poster as a data: URL (or None), fetched from Trace only once.
 
-        Tries both URL prefixes (newer 'api', older 'us-east-2/soccer/api').
+        A game that has a folder keeps its poster there ('Thumbnail/thumbnail.jpg'),
+        so the folder is complete on its own. Games not downloaded yet have no
+        folder, and making one per listed game would litter the videos folder, so
+        their posters are kept in the app's own data until the game is downloaded.
         """
         import base64
-        # Try the prefix that worked for this team first (saves up to 2 failing
-        # requests per game once the team's prefix is known).
+        acct = self._active()
+        in_game = self._folders(game_id, date, opponent).thumbnail if acct else None
+        in_app = acct.thumbs_dir(DATA) / f"{game_id}.jpg" if acct else None
+        data = self._read(in_game) or self._read(in_app)
+        if data is None:
+            data = self._fetch_thumb(team_id, game_id)
+            if data is None:
+                return None
+            self._write(in_app, data)
+        if in_game and in_game.parent.parent.is_dir() and not in_game.exists():
+            self._write(in_game, data)
+        return "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")
+
+    @staticmethod
+    def _read(path):
+        try:
+            return path.read_bytes() if path and path.exists() else None
+        except OSError:
+            return None
+
+    @staticmethod
+    def _write(path, data):
+        """Save a small file whole-or-not-at-all; failing to save is not an error."""
+        if not path:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            part = path.with_suffix(".part")
+            part.write_bytes(data)
+            part.replace(path)
+        except OSError:
+            pass
+
+    def _fetch_thumb(self, team_id, game_id):
+        """Poster bytes from Trace, trying each URL prefix (newer 'api', older
+        'us-east-2/soccer/api'), the one that last worked for this team first."""
         cached = self._thumb_prefix.get(team_id)
         order = ([cached] + [p for p in streams.PREFIXES if p != cached]
                  if cached else streams.PREFIXES)
@@ -264,8 +341,7 @@ class Worker:
                 r = self._ctx.request.get(url, timeout=12000)
                 if r.ok:
                     self._thumb_prefix[team_id] = prefix
-                    b64 = base64.b64encode(r.body()).decode("ascii")
-                    return f"data:image/jpeg;base64,{b64}"
+                    return r.body()
             except Exception:
                 continue
         return None
@@ -386,53 +462,213 @@ class Worker:
         self._cfg = load_config(DATA / "config.yaml")
         return True
 
-    def _compute_analytics(self):
-        """Stats for the active account's DOWNLOADED games (state.json). Skips any
-        game that isn't accessible or errors — never fails the whole batch."""
+    @keep_awake()
+    def _compute_analytics(self, on_progress=None, refresh=False):
         acct = self._active()
-        if not acct or not acct.team_urls:
-            return []
-        team_slug = acct.team_urls[0].rstrip("/").split("/")[-1]
-        request = self._ctx.request
+        if not acct:
+            return AnalyticsResult([])
+        analytics_sync.analytics_cache.mark_viewed(acct.analytics_dir(DATA))
+        return analytics_sync.collect(self._ctx.request, acct, DATA, on_progress,
+                                      videos_dir=self._videos_dir(), refresh=refresh)
 
+    def _videos_dir(self):
+        """The active account's folder of game folders."""
+        return self._active().output_dir(self._cfg.output_dir)
+
+    @keep_awake()
+    def _save_stats(self):
+        acct = self._active()
+        return bool(acct) and analytics_sync.save_recent(self._ctx.request, acct, DATA,
+                                                         videos_dir=self._videos_dir())
+
+    @keep_awake()
+    def _heatmap(self, game_id, date, opponent, fetch):
+        """The game's saved heat map. With `fetch`, one not saved yet is made from
+        Trace's player tracking files (tens of MB a half) and kept. None when
+        there is none saved, or Trace has no tracking for the game."""
+        team, _, number = game_id.rpartition("-")
+        directory = self._active().analytics_dir(DATA) / "heat"
+        root = self._folders(game_id, date, opponent).root
+        saved = radar.load(directory, int(number), game_root=root)
+        if saved:
+            radar.copy_to_game(root, saved)     # the game may have been downloaded since
+        if saved or not fetch:
+            return saved
+        halves = {}
+        for half, master in enumerate(self._resolve_masters(team, game_id), 1):
+            resp = self._ctx.request.get(radar.radar_url(master, half), timeout=180000)
+            if resp.ok:
+                halves[half] = radar.heat(resp.json(), team)
+        built = radar.build(halves)
+        if built:
+            radar.save(directory, int(number), built, game_root=root)
+        return built
+
+    @keep_awake()
+    def _export_highlights(self, game_id, date, opponent, on_progress=None):
+        """(folder, clip count, already saved). Highlights saved earlier are kept
+        as they are. With the game downloaded, clips are cut from the local video;
+        without it, they are fetched straight from Trace (on_progress(done, total)
+        follows them, cancel() stops them). Raises RuntimeError with a message
+        for the user."""
+        folders = self._folders(game_id, date, opponent)
+        folder, count = self._saved_clips(folders)
+        if count:
+            highlights.build_reel(folder)      # clips cut before reels existed get one
+            return folder, count, True
+        found = analytics_sync.moments_for(self._ctx.request, self._active(), DATA,
+                                           int(game_id.rsplit("-", 1)[-1]),
+                                           videos_dir=self._videos_dir())
+        if not found:
+            raise RuntimeError("Trace has no moments for this game, so there are no highlights to make.")
+        meta, moments = found
+        files = self._game_files(date or game_id, opponent or None)
+        if files:
+            folder, count = highlights.export(moments, meta.our_side, files, folders.highlights)
+        else:
+            try:
+                folder, count = highlights.export_remote(
+                    moments, meta.our_side, self._half_playlists(game_id), folders.highlights,
+                    on_progress=on_progress, on_proc=lambda pr: setattr(self, "_proc", pr),
+                    should_stop=self._cancel.is_set)
+            finally:
+                self._proc = None
+        if count:
+            highlights.build_reel(folder)
+        return folder, count, False
+
+    def _half_playlists(self, game_id):
+        """{half: pieces} of the game's video on Trace, at the configured quality."""
+        team_id = game_id.rpartition("-")[0]
+        request = self._ctx.request
+        playlists = {}
+        for half, master in enumerate(self._resolve_masters(team_id, game_id), 1):
+            variant = quality.pick_from_master(request.get(master).text(), master, self._cfg.quality)
+            playlists[half] = segments.parse(request.get(variant).text(), variant)
+        return playlists
+
+    def _folders(self, game_id, date, opponent):
+        return game_folders(self._active().output_dir(self._cfg.output_dir),
+                            date or game_id, opponent or None)
+
+    # Clips and recaps are looked for in the game's own folders first, then in
+    # the '<game>_highlights' folder they shared before.
+    @staticmethod
+    def _saved_clips(folders):
+        """(folder, count) of team clips already cut for a game, else (None, 0)."""
+        for folder in (folders.highlights, folders.legacy_highlights):
+            count = highlights.clip_count(folder)
+            if count:
+                return folder, count
+        return None, 0
+
+    @staticmethod
+    def _saved_recap(folders, player):
+        """Path of a player's recap if it is already saved, else None."""
+        for folder in (folders.players, folders.legacy_highlights):
+            path = folder / recaps.recap_name(player)
+            if path.exists():
+                return path
+        return None
+
+    def _folder_to_open(self, game_id, date, opponent):
+        """Where "Open Folder" should go for a game: its own folder if it has
+        one, else the older highlights folder, else the team's folder."""
+        folders = self._folders(game_id, date, opponent)
+        for folder in (folders.root, folders.legacy_highlights):
+            if folder.is_dir():
+                return str(folder)
+        team = folders.root.parent
+        team.mkdir(parents=True, exist_ok=True)
+        return str(team)
+
+    def _game_media(self, game_id, date, opponent):
+        """Every video saved for a game: the full game, the highlight reel, each
+        clip and each player recap, as file paths with labels to show."""
+        folders = self._folders(game_id, date, opponent)
+        clips_dir = self._saved_clips(folders)[0]
+        reel = clips_dir / highlights.REEL_NAME if clips_dir else None
+        recap_files = []
+        for folder in (folders.players, folders.legacy_highlights):
+            if folder.is_dir():
+                recap_files = sorted(p for p in folder.glob("player-*.mp4")
+                                     if not p.name.endswith(".part.mp4"))
+                if recap_files:
+                    break
+        number = lambda p: int(p.stem.split("-")[1]) if p.stem.split("-")[1].isdigit() else 10 ** 9
+        return {"full": self._game_files(date or game_id, opponent or None),
+                "reel": str(reel) if reel and reel.exists() else None,
+                "clips": [{"label": highlights.clip_label(p.name), "path": str(p),
+                           "half": highlights.clip_place(p.name)[0],
+                           "start": highlights.clip_place(p.name)[1]}
+                          for p in (highlights.saved_clips(clips_dir) if clips_dir else [])],
+                "recaps": [{"label": recaps.recap_label(p.name), "path": str(p)}
+                           for p in sorted(recap_files, key=lambda p: (number(p), p.name))]}
+
+    def _clip_counts(self, games):
+        """{game id: team clips already cut}, for games that have any."""
+        if not self._active():
+            return {}
+        counts = {g.id: self._saved_clips(self._folders(g.id, g.date, g.opponent))[1]
+                  for g in games}
+        return {game_id: n for game_id, n in counts.items() if n}
+
+    def _highlights_folder(self, game_id, date, opponent, kind="clips"):
+        """The folder holding a game's team clips ("clips") or player recaps
+        ("recaps"), or None when nothing of that kind is saved yet."""
+        folders = self._folders(game_id, date, opponent)
+        if kind == "clips":
+            folder = self._saved_clips(folders)[0]
+            if folder:
+                highlights.build_reel(folder)
+        else:
+            folder = next((f for f in (folders.players, folders.legacy_highlights)
+                           if f.is_dir() and any(f.glob("player-*.mp4"))), None)
+        return str(folder) if folder else None
+
+    def _game_players(self, game_id):
+        team_slug, _, num = game_id.rpartition("-")
+        request = self._ctx.request
+        return recaps.game_players(request, team_slug, int(num), analytics.user_token(request))
+
+    def _list_highlights(self, game_id, date, opponent):
+        """What a game's highlights folder holds, and each player's recap: already
+        saved, or how long it is ("seconds": 0 when Trace has none for this game)."""
+        folders = self._folders(game_id, date, opponent)
+        num = int(game_id.rsplit("-", 1)[-1])
+        players = []
+        for p in self._game_players(game_id):
+            saved = self._saved_recap(folders, p) is not None
+            seconds = None if saved else (
+                len(recaps.fetch_segments(self._ctx.request, p.user_id, num)) * recaps.SEGMENT_SECS)
+            players.append({"user_id": p.user_id, "number": p.number, "name": p.name,
+                            "saved": saved, "seconds": seconds})
+        return {"team_clips": self._saved_clips(folders)[1], "players": players}
+
+    @keep_awake()
+    def _download_recap(self, game_id, date, opponent, user_id, on_progress=None):
+        """Save one player's recap; returns its path. A recap saved earlier is kept.
+        on_progress(percent) follows the download; cancel() stops it mid-file."""
+        player = next((p for p in self._game_players(game_id) if p.user_id == user_id), None)
+        if player is None:
+            raise RuntimeError("That player isn't on this game's roster.")
+        folders = self._folders(game_id, date, opponent)
+        saved = self._saved_recap(folders, player)
+        if saved:
+            return str(saved)
+        dest = folders.players / recaps.recap_name(player)
+        urls = recaps.fetch_segments(self._ctx.request, user_id, int(game_id.rsplit("-", 1)[-1]))
+        if not urls:
+            raise RuntimeError("Trace has no recap for this player in this game.")
         try:
-            token = analytics.user_token(request)
-            hash_key = analytics.user_hash_key(request, token)
-            team_id = analytics.team_numeric_id(request, team_slug)
-            if not (token.get("token") and team_id):
-                return []
-            games_by_id = analytics.fetch_team_games(request, team_id, token)
-        except Exception:
-            LOG.exception("analytics setup failed")
+            recaps.download(urls, dest, progress_cb=on_progress,
+                            on_proc=lambda pr: setattr(self, "_proc", pr))
+        finally:
+            self._proc = None
+        return str(dest)
+
+    def _game_files(self, date, opponent):
+        acct = self._active()
+        if not acct:
             return []
-        done = load_state(acct.state_path(DATA))   # ids like "hjmwnzo2-13787132"
-        out = []
-        for full_id in done:
-            try:
-                num = int(full_id.rsplit("-", 1)[-1])
-            except ValueError:
-                continue
-            game = games_by_id.get(num)
-            if not game or game.get("status") != "ready":
-                continue
-            side = analytics.our_side_for(game, team_id)
-            if side is None:
-                continue
-            try:
-                allowed, moments = analytics.fetch_game_moments(request, num, hash_key, token)
-                if not allowed or not moments:
-                    continue
-                opp = (game.get("away_team") if side == "home"
-                       else game.get("home_team")) or {}
-                half = game.get("approx_half_duration") or 0
-                meta = analytics.GameMeta(game_id=num,
-                                          date=(game.get("full_date") or "")[:10],
-                                          opponent=opp.get("title") or opp.get("name") or "",
-                                          our_side=side,
-                                          match_secs=half * 2)
-                out.append(analytics.compute_split(moments, meta))
-            except Exception:
-                LOG.exception("analytics failed for game %s", full_id)
-                continue
-        out.sort(key=lambda s: s.whole.date, reverse=True)
-        return out
+        return [str(p) for p in saved_files(acct.output_dir(self._cfg.output_dir), date, opponent)]

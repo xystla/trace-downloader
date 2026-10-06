@@ -160,10 +160,16 @@ jobs:
           path: |
             TraceDown-*.zip
             TraceDown-Windows-Setup.exe
+      - name: Release notes from the changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python packaging/release_notes.py "${{ github.ref_name }}" RELEASE_NOTES.md
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          # The app's update banner shows these notes, and its "What's new"
+          # dialog shows the same list from the bundled CHANGELOG.md.
+          body_path: RELEASE_NOTES.md
           files: |
             TraceDown-*.zip
             TraceDown-Windows-Setup.exe

@@ -43,3 +43,38 @@ def test_stats_empty():
     s = compute_game_stats([], meta)
     assert s.poss_secs_us == 0.0 and s.poss_pct_us == 0.0 and s.passes_us == 0
     assert s.territory_us == Territory(0.0, 0.0, 0.0)
+
+
+def test_touches_are_counted_per_jersey_number_for_our_team_only():
+    from trace_grabber.analytics import GameMeta, aggregate, compute_game_stats
+    moments = [
+        {"type": "touch_chain", "side": "home", "duration": 10, "trace_numbers": ["7", "?", "2", "7"]},
+        {"type": "touch_chain", "side": "home", "duration": 10, "trace_numbers": ["2"]},
+        {"type": "touch_chain", "side": "away", "duration": 10, "trace_numbers": ["9"]},
+    ]
+    stats = compute_game_stats(moments, GameMeta(1, "2026-06-04", "Rovers", "home"))
+    assert stats.touches_by_number == {"7": 2, "2": 2}
+    assert aggregate([stats, stats]).touches_by_number == {"7": 4, "2": 4}
+
+
+def test_territory_map_can_take_its_ink_from_the_page():
+    from trace_grabber.analytics import Territory, territory_svg
+    svg = territory_svg(Territory(20, 30, 50), ink="currentColor")
+    assert 'stroke="currentColor"' in svg and "#e8e8e8" not in svg and "#20303a" not in svg
+
+
+def test_game_query_asks_for_what_highlight_clips_need():
+    from trace_grabber.analytics import GAME_Q
+    assert " time " in GAME_Q and " title " in GAME_Q
+
+
+def test_opponent_box_entries_are_counted():
+    from trace_grabber.analytics import GameMeta, aggregate, compute_game_stats
+    moments = [
+        {"type": "touch_chain", "side": "home", "duration": 10, "keywords": ["away-box"]},   # ours
+        {"type": "away_shot home_box", "side": "away", "duration": 5, "keywords": ["away-shot", "home-box"]},
+        {"type": "home_box", "side": "away", "duration": 5, "keywords": ["home-box"]},
+    ]
+    stats = compute_game_stats(moments, GameMeta(1, "2026-06-04", "Rovers", "home"))
+    assert (stats.box_us, stats.box_them) == (1, 2)
+    assert aggregate([stats, stats]).box_them == 4

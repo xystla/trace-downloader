@@ -25,6 +25,12 @@ class Account:
     def state_path(self, root) -> Path:
         return Path(root) / "state" / f"{self.id}.json"
 
+    def analytics_dir(self, root) -> Path:
+        return Path(root) / "analytics" / self.id
+
+    def thumbs_dir(self, root) -> Path:
+        return Path(root) / "thumbs" / self.id
+
     def output_dir(self, base) -> Path:
         return Path(base) / _safe_dir(self.label)
 
@@ -97,6 +103,8 @@ def remove_account(root, accounts: Accounts, account_id: str) -> None:
         return
     shutil.rmtree(acct.profile_path(root), ignore_errors=True)
     acct.state_path(root).unlink(missing_ok=True)
+    shutil.rmtree(acct.analytics_dir(root), ignore_errors=True)
+    shutil.rmtree(acct.thumbs_dir(root), ignore_errors=True)
     accounts.items = [a for a in accounts.items if a.id != account_id]
     if accounts.active_id == account_id:
         accounts.active_id = accounts.items[0].id if accounts.items else None

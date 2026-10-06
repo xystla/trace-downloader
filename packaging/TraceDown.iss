@@ -55,6 +55,9 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+; An in-app update runs this installer with /SILENT (no wizard, so no "launch"
+; tick-box): reopen the app automatically once the new version is in place.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifnotsilent
 
 [Code]
 // Upgrading over a running copy fails with "DeleteFile failed; code 5/32"

@@ -2,30 +2,234 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <script>
+    // Apply a chosen light/dark theme before anything is drawn (no flash of the other one).
+    try {
+      var theme = localStorage.getItem("theme");
+      if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+    } catch (e) { /* follow the computer */ }
+  </script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
+  <div id="splash" class="splash" role="status" aria-label="Starting TraceDown">
+    <svg class="splash-play" width="76" height="76" viewBox="-14 -14 28 28" aria-hidden="true">
+      <polygon points="-6.3,-10 -6.3,10 12.6,0" fill="#3ddc84"/>
+    </svg>
+    <div class="splash-name"><span class="logo-a">Trace</span><span class="logo-b">Down</span></div>
+    <div class="splash-tagline">Every game, yours to keep.</div>
+  </div>
+  <svg hidden xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V11"/><path d="M12 20V4"/><path d="M19 20v-6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h8"/><path d="M18 7h2"/><circle cx="15" cy="7" r="2.5"/><path d="M4 17h2"/><path d="M12 17h8"/><circle cx="9" cy="17" r="2.5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
+    <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-games" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7.5 4v16"/><path d="M16.5 4v16"/><path d="M3 9.3h4.5"/><path d="M3 14.7h4.5"/><path d="M16.5 9.3H21"/><path d="M16.5 14.7H21"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2"/></symbol>
+    <symbol id="i-single" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="11" rx="1.5"/><path d="M7 19.5h10"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14"/><path d="M16 5v14"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9a4.5 4.5 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="m16 9.5 5 5"/><path d="m21 9.5-5 5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></symbol>
+  </svg>
+  <aside class="sidebar">
     <svg class="logo" width="156" height="26" viewBox="0 0 156 26" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TraceDown">
       <polygon points="2,3 2,23 19,13" fill="#3ddc84"/>
       <text x="27" y="20" font-family="-apple-system,system-ui,sans-serif" font-size="20" font-weight="700">
-        <tspan fill="#e8eef5">Trace</tspan><tspan fill="#3ddc84">Down</tspan>
+        <tspan class="logo-a">Trace</tspan><tspan class="logo-b">Down</tspan>
       </text>
     </svg>
-    <select id="account" class="account"></select>
-    <div id="status" class="status">…</div>
-    <button id="reconnect" style="display:none">Reconnect</button>
-  </header>
-  <div id="statusDetail" class="statusDetail"></div>
-  <button id="downloadAll" class="primary">⬇ Download all new games</button>
-  <div id="gamesStatus" class="statusDetail" role="status"></div>
-  <button id="retryGames" hidden>Retry loading games</button>
-  <div id="games" class="games"></div>
-  <footer>
-    <button id="openFolder">📁 Open folder</button>
-    <button id="analyticsBtn">📊 Analytics</button>
-    <button id="settingsBtn">⚙ Settings</button>
-  </footer>
+    <div class="tagline">Every game, yours to keep.</div>
+    <nav id="nav">
+      <button data-view="games" class="on"><svg class="ic" aria-hidden="true"><use href="#i-games"/></svg>Games</button>
+      <button data-view="analytics"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg>Analytics</button>
+      <button data-view="downloads"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg>Downloads<span id="dlCount" class="count" hidden></span></button>
+      <button data-view="settings"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg>Settings</button>
+    </nav>
+    <div class="side-foot">
+      <select id="account" class="account" aria-label="Account"></select>
+      <div id="status" class="status">…</div>
+      <div id="autoStatus" class="auto-status" hidden></div>
+      <div id="version" class="version"></div>
+    </div>
+  </aside>
+  <main>
+    <div id="updateBanner" class="update-banner" hidden>
+      <div class="text">
+        <b id="updateTitle"></b>
+        <span id="updateNote" class="update-note"></span>
+        <div id="updateBar" class="bar" hidden><i></i></div>
+      </div>
+      <button id="updateNotes">What's new</button>
+      <button id="updateNow" class="primary">Update now</button>
+      <button id="updateLater">Later</button>
+    </div>
+    <section id="games-view" class="view">
+      <div id="connBanner" class="banner" hidden>
+        <div class="text">
+          <div id="bannerText"></div>
+          <div id="statusDetail" class="statusDetail"></div>
+        </div>
+        <button id="reconnect">Reconnect</button>
+      </div>
+      <div id="gameTools" class="tools" hidden>
+        <label class="search">
+          <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+          <input id="gameSearch" type="search" placeholder="Search opponent or date" aria-label="Search games">
+        </label>
+        <div id="gameFilter" class="seg-toggle" role="group" aria-label="Filter games">
+          <button data-filter="all" class="on">All</button>
+          <button data-filter="new">New</button>
+          <button data-filter="saved">Saved</button>
+        </div>
+        <div id="layoutToggle" class="seg-toggle" role="group" aria-label="Layout">
+          <button data-layout="list" title="List" aria-label="List layout"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></button>
+          <button data-layout="cards" class="on" title="Cards" aria-label="Card layout"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg></button>
+          <button data-layout="single" title="One game at a time" aria-label="Single game layout"><svg class="ic" aria-hidden="true"><use href="#i-single"/></svg></button>
+        </div>
+        <button id="openFolder"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>Open folder</button>
+      </div>
+      <div id="seasonSummary" class="season-summary" hidden></div>
+      <div id="gamesStatus" class="notice" role="status"></div>
+      <button id="retryGames" hidden>Retry loading games</button>
+      <div id="games" class="games"></div>
+    </section>
+
+    <section id="analytics" class="view" hidden>
+      <div class="row">
+        <h2>Analytics</h2>
+        <span class="spacer"></span>
+        <button id="analytics-refresh"><svg class="ic" aria-hidden="true"><use href="#i-retry"/></svg>Refresh</button>
+        <button id="export-csv">Export CSV</button>
+        <button id="export-html">Export HTML</button>
+      </div>
+      <div id="analytics-loading" class="loading" hidden>
+        <div id="analytics-loading-text">Loading stats from Trace…</div>
+        <div class="bar"><i></i></div>
+      </div>
+      <div id="season-top" class="season-top">
+        <div id="season-record" class="season-summary"></div>
+        <div id="season-line" class="card timeline" hidden></div>
+      </div>
+      <div id="analytics-empty" class="notice" hidden>No stats yet. Trace provides stats for your most recent games.</div>
+      <div id="analytics-body">
+        <div class="row">
+          <h2>Season analytics</h2>
+          <span class="spacer"></span>
+          <div id="seg-toggle" class="seg-toggle">
+            <button data-seg="whole" class="on">Whole game</button>
+            <button data-seg="first">1st half</button>
+            <button data-seg="second">2nd half</button>
+          </div>
+        </div>
+        <p id="analytics-coverage" class="caption coverage" hidden></p>
+        <div id="stat-tiles" class="tiles"></div>
+        <div class="cards">
+          <div class="card">
+            <h3>Territory</h3>
+            <div id="season-map" class="pitch"></div>
+            <p id="map-note" class="caption"></p>
+          </div>
+          <div class="card" id="halves-card">
+            <h3>By half</h3>
+            <table id="halves-table" class="stats-table"><thead><tr><th></th><th>1st half</th><th>2nd half</th><th>Whole</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Touches by player</h3>
+          <p class="caption">Tracked touches per shirt number in your team's possession sequences. Untracked touches are left out.</p>
+          <div id="players" class="players"></div>
+        </div>
+        <h2>Game by game</h2>
+        <div class="card" id="trend-card">
+          <div class="row">
+            <h3>Each game compared</h3>
+            <span class="spacer"></span>
+            <select id="trend-metric" aria-label="Chart metric">
+              <option value="shots">Shots</option>
+              <option value="control">Ball-control (min)</option>
+              <option value="passes">Passes</option>
+              <option value="box">Box entries</option>
+              <option value="att">Attacking-third entries</option>
+              <option value="packing">Packing</option>
+            </select>
+          </div>
+          <div id="trend-legend" class="legend"></div>
+          <div id="trend" class="chart"></div>
+          <div id="chart-tip" class="chart-tip" hidden></div>
+        </div>
+        <div class="card" id="games-card">
+          <h3>Games</h3>
+          <p class="caption">Click a game to open its page. Where the ball was is by third (from Trace touch-chains) —
+             not pixel tracking. "Ball-control" is minutes in your team's tracked
+             possession sequences, with its share of a nominal 90' match in parentheses
+             (reads low — touch-chains aren't every touch, and Trace doesn't feed
+             opponent possession). "Passes" counts ball-touches in those sequences.</p>
+          <div class="table-wrap">
+            <table id="analytics-table" class="stats-table">
+              <thead><tr><th>Date</th><th>Opponent</th><th title="Final score entered on Trace, your team first">Score</th><th title="Minutes of ball-control (share of a nominal 90' match)">Ball-control</th>
+                <th title="Passes (ball-touches in tracked sequences)">Passes</th><th>Shots</th><th title="Opponent shots">Opp shots</th><th title="Entries into the opponent box">Box</th><th title="Attacking-third entries">Att ⅓</th><th title="Packing (opponents bypassed)">Packing</th><th title="Tracked touch-chains these numbers rest on">Seq</th></tr></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="downloads" class="view" hidden>
+      <div class="row">
+        <h2>Downloads</h2>
+        <span class="spacer"></span>
+        <button id="clearDone" hidden>Clear finished</button>
+      </div>
+      <p id="dlEmpty" class="caption">Nothing is downloading. Downloads run one at a time; anything you start while another is running waits here and starts by itself.</p>
+      <div id="dlList" class="dl-list"></div>
+    </section>
+    <section id="settings" class="view" hidden>
+      <h2>Settings</h2>
+      <div class="card settings-card">
+        <label>Download folder
+          <div class="dirRow">
+            <span id="outDir" class="dirPath" title=""></span>
+            <button id="changeDir">Change…</button>
+          </div>
+        </label>
+        <label>Quality
+          <select id="quality"><option>highest</option><option>2000k</option><option>1000k</option></select>
+        </label>
+        <label class="inline"><span>Appearance</span>
+          <select id="theme" aria-label="Appearance">
+            <option value="system">Match my computer</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <label class="switch"><span>Combine both halves into one file</span><input type="checkbox" id="combine"></label>
+        <label class="switch"><span>Download new games automatically every 3 hours<small>The full game, highlights and player recaps, for games added from now on. TraceDown keeps running in the background to do this.</small></span><input type="checkbox" id="auto"></label>
+        <label class="switch" id="loginRow"><span>Open TraceDown when I log in to this computer</span><input type="checkbox" id="login"></label>
+        <button id="removeAccount" class="danger">Log out / remove this account</button>
+      </div>
+      <div class="card settings-card update-card">
+        <div class="row">
+          <div class="text"><div id="aboutVersion"></div><div id="updateResult" class="caption"></div></div>
+          <span class="spacer"></span>
+          <button id="showNotes">What's new</button>
+          <button id="checkUpdate">Check for updates</button>
+          <button id="quitApp" title="Close TraceDown completely, including automatic downloads.">Quit TraceDown</button>
+        </div>
+      </div>
+    </section>
+  </main>
   <dialog id="connect">
     <h2>Connect your Trace account</h2>
     <ol class="steps">
@@ -43,53 +247,44 @@
     </details>
     <menu><button id="connectCancel">Cancel</button></menu>
   </dialog>
-  <dialog id="settings">
-    <h2>Settings</h2>
-    <label>Download folder
-      <div class="dirRow">
-        <span id="outDir" class="dirPath" title=""></span>
-        <button id="changeDir">Change…</button>
+  <dialog id="welcome">
+    <div class="dialog-brand">
+      <svg class="logo" width="156" height="26" viewBox="0 0 156 26" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TraceDown">
+        <polygon points="2,3 2,23 19,13" fill="#3ddc84"/>
+        <text x="27" y="20" font-family="-apple-system,system-ui,sans-serif" font-size="20" font-weight="700">
+          <tspan class="logo-a">Trace</tspan><tspan class="logo-b">Down</tspan>
+        </text>
+      </svg>
+      <div class="tagline">Every game, yours to keep.</div>
+    </div>
+    <h2>Welcome. Two quick choices</h2>
+    <div class="welcome-row">
+      <div class="welcome-label">How should TraceDown look?</div>
+      <div id="welcomeTheme" class="seg-toggle" role="group" aria-label="Appearance">
+        <button data-theme-choice="system" class="on">Match my computer</button>
+        <button data-theme-choice="light">Light</button>
+        <button data-theme-choice="dark">Dark</button>
       </div>
-    </label>
-    <label>Quality
-      <select id="quality"><option>highest</option><option>2000k</option><option>1000k</option></select>
-    </label>
-    <label class="switch"><input type="checkbox" id="combine"> Combine both halves into one file</label>
-    <label class="switch"><input type="checkbox" id="auto"> Download new games automatically every 3 hours</label>
-    <button id="removeAccount" style="background:#3a2330;color:#e6a">Log out / remove this account</button>
-    <menu><button id="closeSettings">Done</button></menu>
+    </div>
+    <label class="switch"><span>Download new games automatically every 3 hours<small>Each new game with its highlights and player recaps, roughly 4 to 5 GB a game. Only games added from now on; older ones are yours to pick.</small></span><input type="checkbox" id="welcomeAuto"></label>
+    <label class="switch" id="welcomeLoginRow" hidden><span>Open TraceDown when I log in to this computer<small>It keeps running in the background, in the menu bar or system tray, so it can check for new games. Quit it there or in Settings.</small></span><input type="checkbox" id="welcomeLogin" checked></label>
+    <p class="caption">You can change all of this later in Settings.</p>
+    <menu><button id="welcomeDone" class="primary">Get started</button></menu>
   </dialog>
-  <dialog id="analytics">
-    <div class="row">
-      <h2>Team Analytics</h2>
-      <span class="spacer"></span>
-      <button id="export-csv">Export CSV</button>
-      <button id="export-html">Export HTML</button>
+  <dialog id="whatsNew">
+    <div class="dialog-brand">
+      <svg class="logo" width="156" height="26" viewBox="0 0 156 26" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TraceDown">
+        <polygon points="2,3 2,23 19,13" fill="#3ddc84"/>
+        <text x="27" y="20" font-family="-apple-system,system-ui,sans-serif" font-size="20" font-weight="700">
+          <tspan class="logo-a">Trace</tspan><tspan class="logo-b">Down</tspan>
+        </text>
+      </svg>
+      <div class="tagline">Every game, yours to keep.</div>
     </div>
-    <div id="seg-toggle" class="seg-toggle">
-      <button data-seg="whole" class="on">Whole game</button>
-      <button data-seg="first">1st half</button>
-      <button data-seg="second">2nd half</button>
-    </div>
-    <div id="season-map" class="pitch"></div>
-    <p id="map-note" class="caption"></p>
-    <p class="caption">Where the ball was, by third (from Trace touch-chains) —
-       not pixel tracking. "Ball-control" is minutes in your team's tracked
-       possession sequences, with its share of a nominal 90' match in parentheses
-       (reads low — touch-chains aren't every touch, and Trace doesn't feed
-       opponent possession). "Passes" counts ball-touches in those sequences.</p>
-    <div id="analytics-empty" class="muted" hidden>Download some games first.</div>
-    <div class="table-wrap">
-      <table id="analytics-table" class="compact">
-        <thead><tr><th>Date</th><th>Opp</th><th title="Minutes of ball-control (share of a nominal 90' match)">Ball-ctrl</th>
-          <th title="Passes (ball-touches in tracked sequences)">Pass</th><th>Shots</th><th title="Opponent shots">Opp</th><th title="Entries into the opponent box">Box</th><th title="Attacking-third entries">Att⅓</th><th title="Packing (opponents bypassed)">Pack</th><th title="Tracked touch-chains these numbers rest on">Seq</th></tr></thead>
-        <tbody></tbody>
-        <tfoot></tfoot>
-      </table>
-    </div>
-    <menu><button id="closeAnalytics">Done</button></menu>
+    <h2 id="whatsNewTitle"></h2>
+    <ul id="whatsNewList" class="notes"></ul>
+    <menu><button id="whatsNewClose">Got it</button></menu>
   </dialog>
-  <div id="version" class="version"></div>
   <script src="app.js"></script>
 </body>
 </html>

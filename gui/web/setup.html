@@ -1,12 +1,13 @@
 <!doctype html><html><head><meta charset="utf-8">
 <style>
- body{margin:0;background:#0f1419;color:#e8eef5;font-family:-apple-system,system-ui,sans-serif;
+ body{margin:0;background:#0b0f14;color:#e8eef5;font-family:"Segoe UI Variable Text","Segoe UI",-apple-system,system-ui,sans-serif;
    display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;}
  h1{font-size:18px} p{color:#8aa0b4;font-size:13px;max-width:320px;text-align:center}
- .spin{width:28px;height:28px;border:3px solid #1b2430;border-top-color:#3ddc84;border-radius:50%;
+ .spin{width:28px;height:28px;border:3px solid #1c2632;border-top-color:#3ddc84;border-radius:50%;
    animation:s 1s linear infinite;margin:14px}@keyframes s{to{transform:rotate(360deg)}}
+ @media (prefers-color-scheme:light){body{background:#f2f4f7;color:#111a24}p{color:#5b6b7b}.spin{border-color:#e2e7ed;border-top-color:#12a35c}}
 </style></head><body>
- <h1>🎥 Setting up TraceDown</h1>
+ <h1>Setting up TraceDown</h1>
  <div class="spin"></div>
  <p id="msg">Downloading the video engine (one time, ~170 MB). This can take a few minutes…</p>
 </body></html>

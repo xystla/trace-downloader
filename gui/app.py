@@ -1,16 +1,25 @@
 # gui/app.py
+import functools
+import inspect
 import json
+import os
 import subprocess
 import sys
+import tempfile
+import threading
+import webbrowser
 from dataclasses import asdict
 from pathlib import Path
 
 import webview
 import yaml
 
+from gui.instance import Instance
+from gui.media import MediaServer
+from gui.tray import Tray
 from gui.worker import Worker
-from gui.viewmodel import games_view, connection_state
-from trace_grabber import analytics, paths, platform_tasks
+from gui.viewmodel import games_view, connection_state, score_view
+from trace_grabber import analytics, autodl, paths, platform_tasks, updates
 from trace_grabber.config import load_config
 
 WEB = paths.resource_dir() / "gui" / "web"
@@ -18,11 +27,28 @@ DATA = paths.data_dir()
 LAST_RUN = DATA / "last_run.json"
 
 
+def _user_job(fn):
+    """Mark a download the person started, so the automatic check waits its turn."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        self._user_jobs += 1
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            self._user_jobs -= 1
+    return wrapper
+
+
 class Api:
     def __init__(self):
         self._worker = None
         self._window = None
         self._game_cache = {}
+        self._tray = None
+        self._quitting = False
+        self._user_jobs = 0        # downloads the person started that are still running
+        self._auto_running = False
+        self._auto_timer = None
 
     def _w(self):
         if self._worker is None:
@@ -43,22 +69,17 @@ class Api:
             "connection": connection_state(has_account, logged_in),
             "login_detail": self._w().login_detail(),
             "last_run": last,
-            "auto": platform_tasks.schedule_enabled(),
+            **self.auto_settings(),
             "settings": {"output_dir": str(cfg.output_dir), "quality": cfg.quality, "combine": cfg.combine_halves},
             "version": paths.APP_VERSION,
         }
 
-    def list_games(self):
-        games, done = self._w().list_games()
-        # Cache the Game objects so a later download doesn't have to re-scrape
-        # the whole games page just to look up team_id/date/opponent.
-        self._game_cache = {g.id: g for g in games}
-        return games_view(games, done)
-
     def get_games(self):
         games, done, errors = self._w().games_result()
         self._game_cache = {g.id: g for g in games}
-        return {"games": games_view(games, done), "errors": errors}
+        clips = self._w().clip_counts(games)
+        views = [{**view, "clips": clips.get(view["id"], 0)} for view in games_view(games, done)]
+        return {"games": views, "errors": errors}
 
     def _run_download(self, game_id):
         g = self._game_cache.get(game_id)
@@ -84,16 +105,137 @@ class Api:
             self._emit("error", {"id": game_id, "message": str(e)})
             return {"ok": False, "error": str(e)}
 
+    def _saved(self, result):
+        return bool(result.get("ok") and result.get("files")) and not self._w().cancelled()
+
+    @_user_job
     def download_game(self, game_id):
         self._w().clear_cancel()
-        return self._run_download(game_id)
+        result = self._run_download(game_id)
+        if self._saved(result):
+            g = self._game_cache[game_id]
+            platform_tasks.notify(f"Saved vs {g.opponent or g.title}")
+        return result
+
+    def _game_file(self, game_id):
+        g = self._game_cache.get(game_id)
+        files = self._w().game_files(g.id, g.date, g.opponent) if g else []
+        return files[0] if files else None
+
+    def _with_game_file(self, game_id, action):
+        path = self._game_file(game_id)
+        if not path:
+            return {"ok": False,
+                    "error": "Couldn't find the video file. It may have been moved or renamed."}
+        action(path)
+        return {"ok": True}
+
+    def game_media(self, game_id):
+        """Everything saved for a game as addresses the page can play: the full
+        game (one part, or one per half when the halves are kept separate), the
+        highlight reel, each clip and each player recap."""
+        empty = {"full": [], "reel": None, "clips": [], "recaps": []}
+        g = self._game_cache.get(game_id)
+        if not g:
+            return empty
+        try:
+            media = self._w().game_media(g.id, g.date, g.opponent)
+        except Exception:
+            return empty
+        if not hasattr(self, "_media"):
+            self._media = MediaServer()
+        url = self._media.url_for
+        files = media["full"]
+        halves = [f for f in files if "_half" in Path(f).name]
+        if len(halves) == len(files) and len(files) > 1:
+            names = ["1st half", "2nd half"]
+            full = [{"label": names[i] if i < 2 else f"Part {i + 1}", "url": url(f)}
+                    for i, f in enumerate(files)]
+        else:
+            full = [{"label": "Full game", "url": url(f)} for f in files[:1]]
+        return {"full": full,
+                "reel": url(media["reel"]) if media["reel"] else None,
+                "clips": [{"label": c["label"], "url": url(c["path"]), "half": c.get("half"),
+                           "start": c.get("start")} for c in media["clips"]],
+                "recaps": [{"label": r["label"], "url": url(r["path"])} for r in media["recaps"]]}
+
+    def play_game(self, game_id):
+        return self._with_game_file(game_id, platform_tasks.open_file)
+
+    def reveal_game(self, game_id):
+        return self._with_game_file(game_id, platform_tasks.reveal_file)
+
+    def _for_game(self, game_id, call):
+        """Run a worker call for a listed game, turning any failure into a message."""
+        g = self._game_cache.get(game_id)
+        if not g:
+            return None, "game not found"
+        try:
+            return call(g), None
+        except Exception as e:
+            return None, str(e)
+
+    def list_highlights(self, game_id):
+        listing, error = self._for_game(
+            game_id, lambda g: self._w().list_highlights(g.id, g.date, g.opponent))
+        return {"ok": False, "error": error} if error else {"ok": True, **listing}
+
+    @_user_job
+    def download_recap(self, game_id, user_id):
+        def on_progress(pct):
+            self._emit("recap_progress", {"id": game_id, "user_id": user_id, "percent": pct})
+
+        _, error = self._for_game(
+            game_id,
+            lambda g: self._w().download_recap(g.id, g.date, g.opponent, user_id, on_progress))
+        return {"ok": False, "error": error} if error else {"ok": True}
+
+    def reveal_highlights(self, game_id, kind="clips"):
+        """Show a game's Highlights folder ("clips") or Player Highlights folder ("recaps")."""
+        folder, error = self._for_game(
+            game_id, lambda g: self._w().highlights_folder(g.id, g.date, g.opponent, kind))
+        if not folder:
+            what = "player recaps" if kind == "recaps" else "highlights"
+            return {"ok": False, "error": error or f"No {what} have been saved for this game yet."}
+        platform_tasks.reveal_file(folder)
+        return {"ok": True}
+
+    def open_game_folder(self, game_id):
+        """Open the folder for a game that has no video yet (see Worker._folder_to_open)."""
+        folder, error = self._for_game(
+            game_id, lambda g: self._w().folder_to_open(g.id, g.date, g.opponent))
+        if not folder:
+            return {"ok": False, "error": error or "Couldn't open the folder."}
+        platform_tasks.open_file(folder)
+        return {"ok": True}
+
+    @_user_job
+    def download_highlights(self, game_id):
+        g = self._game_cache.get(game_id)
+        if not g:
+            return {"ok": False, "error": "game not found"}
+        def on_progress(done, total):
+            self._emit("highlights_progress", {"id": game_id, "done": done, "total": total})
+
+        try:
+            self._w().clear_cancel()
+            folder, count, already = self._w().export_highlights(g.id, g.date, g.opponent, on_progress)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        if self._w().cancelled():
+            return {"ok": False, "error": "Stopped. No highlights were saved."}
+        if not count:
+            return {"ok": False, "error": "No highlights were found in this game."}
+        return {"ok": True, "count": count, "already": already}
 
     def cancel(self):
         self._w().cancel()
         return {"ok": True}
 
     def get_thumb(self, team_id, game_id):
-        return self._w().get_thumb(team_id, game_id)
+        g = self._game_cache.get(game_id)
+        return self._w().get_thumb(team_id, game_id, g.date if g else None,
+                                   g.opponent if g else None)
 
     def list_accounts(self):
         return self._w().list_accounts()
@@ -121,24 +263,116 @@ class Api:
     def confirm_team_url(self, url):
         return self._w().confirm_team_url(url)
 
-    def download_new(self):
-        self._w().clear_cancel()
-        views = self.list_games()
-        new_ids = [v["id"] for v in views if v["state"] == "new"]
-        done = 0
-        for gid in new_ids:
-            if self._w().cancelled():
-                break
-            self._run_download(gid)
-            done += 1
-        return {"ok": True, "count": done}
+    # ---- automatic downloads, running inside the app ----
+    def auto_settings(self):
+        state = autodl.load(DATA)
+        return {"auto": state.enabled, "login": state.login, "welcome": not state.welcomed}
+
+    def finish_welcome(self, auto, login):
+        """Record the first-open choices (appearance is kept by the page itself)."""
+        state = autodl.load(DATA)
+        state.welcomed = True
+        autodl.save(DATA, state)
+        self.set_auto(bool(auto))
+        self.set_login(bool(auto and login))
+        return {"ok": True}
 
     def set_auto(self, enabled):
-        if enabled:
-            platform_tasks.schedule_enable(load_config(DATA / "config.yaml").check_interval_hours)
-        else:
-            platform_tasks.schedule_disable()
-        return platform_tasks.schedule_enabled()
+        """Turn automatic downloads on or off. They only ever cover games added
+        after this moment: the games listed now are recorded as already seen."""
+        platform_tasks.schedule_disable()     # the old background task is replaced by this
+        state = autodl.load(DATA)
+        state.enabled = bool(enabled)
+        if state.enabled:
+            try:
+                games, done = self._w().list_games()
+                state.seen.pop(self._w().list_accounts()["active"], None)     # draw the line afresh
+                autodl.pending(state, self._w().list_accounts()["active"], games, done)
+            except Exception:
+                pass                          # the line is drawn on the first check instead
+        autodl.save(DATA, state)
+        if self._tray:
+            self._tray.set_visible(state.enabled)
+        if state.enabled:
+            self._schedule_auto()
+        return state.enabled
+
+    def set_login(self, enabled):
+        state = autodl.load(DATA)
+        state.login = bool(enabled)
+        autodl.save(DATA, state)
+        (platform_tasks.login_enable if state.login else platform_tasks.login_disable)()
+        return state.login
+
+    def _schedule_auto(self, first_in_secs=None):
+        """(Re)start the timer for the next automatic check."""
+        if self._auto_timer:
+            self._auto_timer.cancel()
+        hours = load_config(DATA / "config.yaml").check_interval_hours
+        self._auto_timer = threading.Timer(first_in_secs or hours * 3600, self._auto_tick)
+        self._auto_timer.daemon = True
+        self._auto_timer.start()
+
+    def _auto_tick(self):
+        try:
+            ran = self.auto_check()["ran"]
+        except Exception:
+            ran = True
+        if autodl.load(DATA).enabled:
+            # If you were busy downloading, look again in ten minutes rather than in three hours.
+            self._schedule_auto(first_in_secs=None if ran else 600)
+
+    def auto_check(self):
+        """Fetch every game added since automatic downloads were switched on: the
+        full game, its highlights and reel, and each player recap."""
+        state = autodl.load(DATA)
+        if not state.enabled or self._auto_running or self._user_jobs > 0:
+            return {"ran": False, "games": 0}
+        self._auto_running = True
+        saved = 0
+        try:
+            w = self._w()
+            games, done = w.list_games()
+            self._game_cache = {g.id: g for g in games}
+            pending = autodl.pending(state, w.list_accounts()["active"], games, done)
+            autodl.save(DATA, state)
+            for index, g in enumerate(pending, 1):
+                name = f"vs {g.opponent or g.title}"
+                self._emit("auto", {"running": True,
+                                    "text": f"Automatic download {index} of {len(pending)}: {name}"})
+                w.clear_cancel()
+                if not self._saved(self._run_download(g.id)):
+                    if w.cancelled():
+                        break
+                    continue                  # no video yet, or it failed: try again next time
+                saved += 1
+                self.download_highlights(g.id)
+                if w.cancelled():
+                    break
+                self.download_all_recaps(g.id, quiet=True)
+                if w.cancelled():
+                    break
+            if saved:
+                platform_tasks.notify(
+                    f"Automatic download: {saved} new game{'' if saved == 1 else 's'} saved")
+        finally:
+            self._auto_running = False
+            self._emit("auto", {"running": False, "text": ""})
+        return {"ran": True, "games": saved}
+
+    def keep_running(self):
+        """Should closing the window leave the app running in the background?"""
+        return not self._quitting and autodl.load(DATA).enabled
+
+    def quit_app(self):
+        self._quitting = True
+        self._quit_soon()
+        return {"ok": True}
+
+    def show_window(self):
+        if self._window:
+            self._window.show()
+            self._window.restore()
 
     def open_folder(self):
         cfg = load_config(DATA / "config.yaml")
@@ -175,28 +409,42 @@ class Api:
         self._w().reload_config()
         return {"ok": True, "output_dir": path}
 
-    def get_analytics(self):
+    def get_analytics(self, refresh=False):
         # Payload carries three segments per game and for the season — whole
         # match, first half, second half — so the UI can toggle between them.
         def stat(gs):
             return {**asdict(gs),
-                    "territory_svg": analytics.territory_svg(gs.territory_us, dark=True)}
+                    "territory_svg": analytics.territory_svg(gs.territory_us, ink="currentColor")}
 
         def season_seg(seasonstats):
             return {**asdict(seasonstats),
-                    "territory_svg": analytics.territory_svg(seasonstats.territory, dark=True)}
+                    "territory_svg": analytics.territory_svg(seasonstats.territory, ink="currentColor")}
 
+        def on_progress(done, total):
+            self._emit("analytics_progress", {"done": done, "total": total})
+
+        downloaded = without_stats = 0
+        timelines = {}
         try:
-            splits = self._w().compute_analytics()
+            result = self._w().compute_analytics(on_progress, bool(refresh))
+            splits = result.splits
+            downloaded, without_stats = result.downloaded, result.without_stats
+            timelines = result.timelines
         except Exception:
             splits = []
+        # Scores come from the game list (stats are keyed by the game's number).
+        scores = {int(g.id.rsplit("-", 1)[-1]): score_view(g) for g in self._game_cache.values()
+                  if g.id.rsplit("-", 1)[-1].isdigit()}
         games = [{"game_id": sp.whole.game_id, "date": sp.whole.date,
-                  "opponent": sp.whole.opponent,
+                  "opponent": sp.whole.opponent, "score": scores.get(sp.whole.game_id),
+                  "timeline": timelines.get(sp.whole.game_id),
                   "whole": stat(sp.whole), "first": stat(sp.first),
                   "second": stat(sp.second)}
                  for sp in splits]
         return {
             "games": games,
+            "downloaded": downloaded,
+            "without_stats": without_stats,
             "season": {
                 "whole": season_seg(analytics.aggregate([sp.whole for sp in splits])),
                 "first": season_seg(analytics.aggregate([sp.first for sp in splits])),
@@ -204,11 +452,142 @@ class Api:
             },
         }
 
+    @_user_job
+    def download_all_recaps(self, game_id, quiet=False):
+        """Every player recap Trace has for one game that isn't saved yet. Reports
+        progress as "recaps" events — a step text before each player, the player's
+        id once saved — and stops between files once cancelled."""
+        g = self._game_cache.get(game_id)
+        if not g:
+            return {"ok": False, "error": "game not found"}
+        w = self._w()
+        w.clear_cancel()
+        result = {"ok": True, "recaps": 0, "failed": 0, "cancelled": False}
+        try:
+            self._emit("recaps", {"id": game_id, "text": "Checking which recaps are missing…"})
+            wanted = [p for p in w.list_highlights(g.id, g.date, g.opponent)["players"]
+                      if not p["saved"] and p["seconds"]]
+            for index, player in enumerate(wanted, 1):
+                if w.cancelled():
+                    break
+                self._emit("recaps", {"id": game_id, "text":
+                                      f"Player recap {index} of {len(wanted)} (#{player['number']})…"})
+                def on_progress(pct, user_id=player["user_id"], index=index):
+                    self._emit("recap_progress", {"id": game_id, "user_id": user_id, "percent": pct,
+                                                  "index": index, "total": len(wanted)})
+
+                try:
+                    w.download_recap(g.id, g.date, g.opponent, player["user_id"], on_progress)
+                    result["recaps"] += 1
+                    self._emit("recaps", {"id": game_id, "saved_user": player["user_id"]})
+                except Exception:
+                    result["failed"] += not w.cancelled()   # a Stop mid-file isn't a failure
+        except Exception as e:
+            return {**result, "ok": False, "error": str(e)}
+        result["cancelled"] = w.cancelled()
+        if not result["cancelled"] and not quiet:
+            platform_tasks.notify(f"Player recaps saved for vs {g.opponent or g.title}")
+        return result
+
+    # ---- updates ----
+    def check_update(self):
+        """Is a newer TraceDown on GitHub? Never installs anything by itself."""
+        try:
+            release = updates.check(paths.APP_VERSION)
+        except Exception:
+            return {"ok": False, "error": "Couldn't check for updates. Check your connection and try again."}
+        self._update = release
+        if not release:
+            return {"ok": True, "available": False, "current": paths.APP_VERSION}
+        return {"ok": True, "available": True, "current": paths.APP_VERSION,
+                "version": release.version, "notes": release.notes,
+                # Only an installed copy can replace itself; from source there is nothing to swap.
+                "can_install": paths.is_frozen() and bool(release.url)}
+
+    def install_update(self):
+        """Download the update found by check_update and hand over to its
+        installer, then quit so it can replace this copy. Falls back to showing
+        the download when it can't be installed automatically."""
+        release = getattr(self, "_update", None)
+        if not release or not release.url or not paths.is_frozen():
+            webbrowser.open(updates.RELEASES_PAGE)
+            return {"ok": True, "manual": True}
+        try:
+            with platform_tasks.keep_awake():
+                path = updates.download(
+                    release, Path(tempfile.gettempdir()) / "TraceDown-update",
+                    on_progress=lambda pct: self._emit("update_progress", {"percent": pct}))
+            if updates.start_install(path):
+                self._quit_soon()
+                return {"ok": True, "restarting": True}
+            platform_tasks.reveal_file(path)
+            return {"ok": True, "manual": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def _quit_soon(self):
+        """Close the app shortly, after this call has been answered — and make
+        sure the process itself ends: the installer waits for it to be gone
+        before replacing the app, so a process lingering behind a closed window
+        would block the update."""
+        self._quitting = True
+
+        def quit_now():
+            try:
+                if self._window:
+                    self._window.destroy()
+            finally:
+                threading.Timer(1.5, lambda: os._exit(0)).start()
+        threading.Timer(1.0, quit_now).start()
+
+    def whats_new(self):
+        """This version's changes, if they haven't been shown since updating."""
+        try:
+            changelog = (paths.resource_dir() / "CHANGELOG.md").read_text(encoding="utf-8")
+            return updates.pending_whats_new(DATA, paths.APP_VERSION, changelog)
+        except Exception:
+            return None
+
+    def whats_new_seen(self):
+        updates.mark_seen(DATA, paths.APP_VERSION)
+        return {"ok": True}
+
+    def version_notes(self):
+        """This version's changes, for the "What's new" button in Settings."""
+        try:
+            changelog = (paths.resource_dir() / "CHANGELOG.md").read_text(encoding="utf-8")
+        except OSError:
+            changelog = ""
+        return {"version": paths.APP_VERSION, "notes": updates.notes_for(paths.APP_VERSION, changelog)}
+
+    def save_stats(self):
+        """Quietly save the newest games' stats (only once Analytics has been viewed)."""
+        try:
+            return {"ok": True, "saved": bool(self._w().save_stats())}
+        except Exception:
+            return {"ok": False, "saved": False}
+
+    def get_heatmap(self, game_id, fetch=False):
+        """Where our players spent the game. Without `fetch` only a saved map is
+        returned; with it, Trace's tracking files are downloaded and kept."""
+        g = self._game_cache.get(game_id)
+        if not g:
+            return {"ok": False, "error": "game not found"}
+        try:
+            heat = self._w().heatmap(g.id, g.date, g.opponent, bool(fetch))
+        except Exception as e:
+            return {"ok": False, "error": f"Couldn't load the heat map: {e}"}
+        if heat:
+            return {"ok": True, "heat": heat}
+        if not fetch:
+            return {"ok": False, "missing": True}
+        return {"ok": False, "error": "Trace has no player tracking for this game."}
+
     def export_analytics(self, fmt):
         if not self._window:
             return {"ok": False}
         try:
-            splits = self._w().compute_analytics()
+            splits = self._w().compute_analytics().splits
             games = [sp.whole for sp in splits]   # exports are whole-game
             season = analytics.aggregate(games)
             ext = "csv" if fmt == "csv" else "html"
@@ -225,7 +604,12 @@ class Api:
             if not res:
                 return {"ok": False}  # cancelled
             path = Path(res[0] if isinstance(res, (list, tuple)) else res)
-            (analytics.export_csv if fmt == "csv" else analytics.export_html)(games, season, path)
+            scores = {int(g.id.rsplit("-", 1)[-1]): f"{g.score_us}-{g.score_them}"
+                      for g in self._game_cache.values()
+                      if g.score_us is not None and g.score_them is not None
+                      and g.id.rsplit("-", 1)[-1].isdigit()}
+            (analytics.export_csv if fmt == "csv" else analytics.export_html)(
+                games, season, path, scores=scores)
             return {"ok": True, "path": str(path)}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -258,12 +642,53 @@ def main():
         return 1
     firstrun.init()
     tools.setup_browser_env()
+    # One copy at a time: if TraceDown is already running (perhaps hidden in the
+    # menu bar or tray), bring its window back instead of starting another.
+    instance = Instance(DATA)
+    if instance.ask_running_copy_to_show():
+        return 0
     api = Api()
+    state = autodl.load(DATA)
+    try:
+        # Automatic downloads used to be a hidden task run by the operating system.
+        # They now run in the app, so carry the old choice over and retire the task.
+        if platform_tasks.schedule_enabled():
+            platform_tasks.schedule_disable()
+            state.enabled = True
+            autodl.save(DATA, state)
+    except Exception:
+        pass
     need_setup = not tools.chromium_installed()
     first = WEB / ("setup.html" if need_setup else "index.html")
+    # Started at login ("--background"): stay out of the way until asked for.
+    hidden = state.enabled and "--background" in sys.argv and not need_setup
     window = webview.create_window("TraceDown", str(first), js_api=api,
-                                   width=520, height=720)
+                                   width=1200, height=780, min_size=(1120, 640),
+                                   background_color="#0b0f14", hidden=hidden)
     api.set_window(window)
+
+    def on_closing():
+        # With automatic downloads on, closing the window only puts it away.
+        if not api.keep_running():
+            return True
+        # Quitting the whole app (Cmd+Q, logging out, shutting down) is a real quit:
+        # refusing it would hold up the computer.
+        if any(f.function == "applicationShouldTerminate_" for f in inspect.stack()):
+            api._quitting = True
+            return True
+        if api._tray:
+            window.hide()
+        else:
+            window.minimize()
+        return False
+    window.events.closing += on_closing
+
+    def check_now():
+        threading.Thread(target=api.auto_check, daemon=True).start()
+    api._tray = Tray.start(api.show_window, check_now, api.quit_app, visible=state.enabled)
+    instance.listen(api.show_window)
+    if state.enabled:
+        api._schedule_auto(first_in_secs=90)
     setup = None
     if need_setup:
         # Only when we showed the setup screen: install Chromium, then load the app.
@@ -277,6 +702,12 @@ def main():
             window.load_url((WEB / "index.html").resolve().as_uri())
         setup = _setup
     webview.start(setup, gui=renderer)
+    # The window loop has ended, so the app is quitting: don't let the tray icon
+    # or a background check keep the process alive.
+    instance.stop()
+    if api._tray:
+        api._tray.stop()
+    os._exit(0)
 
 
 if __name__ == "__main__":

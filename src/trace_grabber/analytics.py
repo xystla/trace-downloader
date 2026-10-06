@@ -7,7 +7,7 @@ docs/superpowers/specs/2026-09-14-team-analytics-design.md.
 import csv
 import html as _html
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 _THIRDS = ("defensive", "middle", "offensive")
@@ -91,6 +91,18 @@ class GameStats:
     # and per-half figures are noise — the UI shows this and flags low samples.
     sequences_us: int = 0
     match_secs_us: float = 0.0  # carried for season-level % aggregation
+    # Tracked touches per jersey number in our touch-chains ("?" = untracked, dropped).
+    touches_by_number: dict[str, int] = field(default_factory=dict)
+    box_them: int = 0   # moments Trace tagged as the opponent getting into our box
+
+
+def _touches_by_number(chains: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for m in chains:
+        for number in m.get("trace_numbers") or []:
+            if number != "?":
+                counts[number] = counts.get(number, 0) + 1
+    return counts
 
 
 def compute_game_stats(moments: list[dict], meta: GameMeta) -> GameStats:
@@ -114,6 +126,8 @@ def compute_game_stats(moments: list[dict], meta: GameMeta) -> GameStats:
         att_third_us=sum(1 for m in ours if m.get("end_third") == "offensive"),
         packing_us=sum(1 for m in ours if _has_kw(m, "packing")),
         territory_us=compute_territory(moments, us),
+        touches_by_number=_touches_by_number(ours),
+        box_them=sum(1 for m in moments if _has_kw(m, f"{us}-box")),
     )
 
 
@@ -152,6 +166,16 @@ class SeasonStats:
     packing_us: int
     territory: Territory
     sequences_us: int = 0        # total tracked touch-chains behind these figures
+    touches_by_number: dict[str, int] = field(default_factory=dict)
+    box_them: int = 0
+
+
+def _sum_counts(dicts) -> dict[str, int]:
+    total: dict[str, int] = {}
+    for counts in dicts:
+        for key, value in counts.items():
+            total[key] = total.get(key, 0) + value
+    return total
 
 
 def aggregate(stats: list[GameStats]) -> SeasonStats:
@@ -183,14 +207,18 @@ def aggregate(stats: list[GameStats]) -> SeasonStats:
         packing_us=sum(s.packing_us for s in stats),
         territory=territory,
         sequences_us=sum(s.sequences_us for s in stats),
+        touches_by_number=_sum_counts(s.touches_by_number for s in stats),
+        box_them=sum(s.box_them for s in stats),
     )
 
 
-def territory_svg(t: Territory, *, dark: bool = False) -> str:
+def territory_svg(t: Territory, *, dark: bool = False, ink: str | None = None) -> str:
+    """`ink` overrides the line and label colour — "currentColor" lets a page
+    that embeds the SVG inline theme it."""
     W, H = 360, 200
     band_w = W / 3
-    stroke = "#e8e8e8" if dark else "#20303a"
-    label = "#ffffff" if dark else "#0d1b22"
+    stroke = ink or ("#e8e8e8" if dark else "#20303a")
+    label = ink or ("#ffffff" if dark else "#0d1b22")
     base = "20,120,90"  # green, opacity carries the share
     shares = ((t.defensive, "Def"), (t.middle, "Mid"), (t.offensive, "Att"))
     peak = max((s for s, _ in shares), default=0) or 1
@@ -231,38 +259,45 @@ def _pct(p: float | None) -> str:
 
 _CSV_HEADER = ["date", "opponent", "sequences", "ball_control_min", "possession_pct",
                "passes_us", "shots_us", "shots_them", "box_us", "att_third_us",
-               "packing_us", "terr_def", "terr_mid", "terr_off"]
+               "packing_us", "terr_def", "terr_mid", "terr_off", "box_them", "score"]
 
 
-def _row(s: "GameStats") -> list:
+def _row(s: "GameStats", score: str = "") -> list:
     return [s.date, s.opponent, s.sequences_us, _mins(s.poss_secs_us),
             "" if s.poss_pct_us is None else s.poss_pct_us, s.passes_us,
             s.shots_us, s.shots_them, s.box_us, s.att_third_us, s.packing_us,
-            s.territory_us.defensive, s.territory_us.middle, s.territory_us.offensive]
+            s.territory_us.defensive, s.territory_us.middle, s.territory_us.offensive,
+            s.box_them, score]
 
 
-def export_csv(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
+def export_csv(stats: list[GameStats], season: SeasonStats, path: Path,
+               scores: dict[int, str] | None = None) -> None:
+    """`scores` maps a game id to its final score as text ("5-3", our team first)."""
+    scores = scores or {}
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(_CSV_HEADER)
         for s in stats:
-            w.writerow(_row(s))
+            w.writerow(_row(s, scores.get(s.game_id, "")))
         w.writerow(["SEASON", f"{season.games} games", season.sequences_us,
                     _mins(season.poss_secs_us),
                     "" if season.poss_pct_us is None else season.poss_pct_us,
                     season.passes_us, season.shots_us, season.shots_them,
                     season.box_us, season.att_third_us, season.packing_us,
                     season.territory.defensive, season.territory.middle,
-                    season.territory.offensive])
+                    season.territory.offensive, season.box_them, ""])
 
 
-def export_html(stats: list[GameStats], season: SeasonStats, path: Path) -> None:
+def export_html(stats: list[GameStats], season: SeasonStats, path: Path,
+                scores: dict[int, str] | None = None) -> None:
     e = _html.escape
+    scores = scores or {}
     rows = "".join(
-        f"<tr><td>{e(s.date)}</td><td>{e(s.opponent)}</td><td>{s.sequences_us}</td>"
+        f"<tr><td>{e(s.date)}</td><td>{e(s.opponent)}</td><td>{e(scores.get(s.game_id, '–'))}</td>"
+        f"<td>{s.sequences_us}</td>"
         f"<td>{_mins(s.poss_secs_us)}</td><td>{_pct(s.poss_pct_us)}</td>"
         f"<td>{s.passes_us}</td><td>{s.shots_us}</td><td>{s.shots_them}</td>"
-        f"<td>{s.box_us}</td><td>{s.att_third_us}</td><td>{s.packing_us}</td></tr>"
+        f"<td>{s.box_us}</td><td>{s.box_them}</td><td>{s.att_third_us}</td><td>{s.packing_us}</td></tr>"
         for s in stats)
     doc = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>Team Analytics</title><style>
@@ -282,9 +317,9 @@ nominal 90-minute match (reads low — touch-chains are notable sequences, not e
 touch, and Trace doesn't feed opponent possession). "Seq" is how many sequences a
 row rests on — with only a few, the territory and per-half figures are unreliable.
 Territory is thirds-based, not pixel tracking.</p>
-<table><thead><tr><th>Date</th><th>Opponent</th><th>Seq</th><th>Ball-control (min)</th>
+<table><thead><tr><th>Date</th><th>Opponent</th><th>Score</th><th>Seq</th><th>Ball-control (min)</th>
 <th>Poss %</th><th>Passes (touches)</th><th>Shots</th><th>Opp shots</th>
-<th>Box</th><th>Att ⅓</th><th>Packing</th>
+<th>Box</th><th>Opp box</th><th>Att ⅓</th><th>Packing</th>
 </tr></thead><tbody>{rows}</tbody></table>
 </body></html>"""
     Path(path).write_text(doc, encoding="utf-8")
@@ -297,14 +332,14 @@ USERS_SELF_TOKEN_URL = "https://teams.traceup.com/webapp/users/self/token"
 TEAM_GAMES_Q = ("query teamGames($team_id: Int!, $token: UserToken!) { "
                 "teamGames(team_id: $team_id, token: $token) { "
                 "game_id status full_date approx_half_duration access { allowed } "
-                "home_team { team_id name title } away_team { team_id name title } } }")
+                "home_team { team_id name title score } away_team { team_id name title score } } }")
 
 # The `moments` field takes its own required `hash_key` argument, in addition
 # to the one on `game`.
 GAME_Q = ("query game($game_id: Int!, $hash_key: String!, $token: UserToken) { "
           "game(game_id: $game_id, hash_key: $hash_key, token: $token) { "
           "access { allowed } "
-          "moments(hash_key: $hash_key) { type side half start_third end_third thirds "
+          "moments(hash_key: $hash_key) { type side half time title start_third end_third thirds "
           "duration trace_numbers keywords } } }")
 
 # hash_key lives on the GraphQL profile, not the users/self REST payload.

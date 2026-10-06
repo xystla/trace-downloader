@@ -63,3 +63,23 @@ def test_migration_empty_when_no_profile(tmp_path):
     accts = load_accounts(tmp_path)  # no .chrome-profile, no config
     assert accts.items == []
     assert accts.active_id is None
+
+def test_remove_account_deletes_saved_analytics(tmp_path):
+    acct = Account("a", "A", "profiles/a", ["ua"])
+    assert acct.analytics_dir(tmp_path) == tmp_path / "analytics" / "a"
+    accts = Accounts(active_id="a", items=[acct])
+    acct.analytics_dir(tmp_path).mkdir(parents=True)
+    (acct.analytics_dir(tmp_path) / "7.json").write_text("{}")
+    save_accounts(tmp_path, accts)
+    remove_account(tmp_path, accts, "a")
+    assert not acct.analytics_dir(tmp_path).exists()
+
+def test_remove_account_deletes_saved_thumbnails(tmp_path):
+    acct = Account("a", "A", "profiles/a", ["ua"])
+    assert acct.thumbs_dir(tmp_path) == tmp_path / "thumbs" / "a"
+    accts = Accounts(active_id="a", items=[acct])
+    acct.thumbs_dir(tmp_path).mkdir(parents=True)
+    (acct.thumbs_dir(tmp_path) / "a-7.jpg").write_bytes(b"x")
+    save_accounts(tmp_path, accts)
+    remove_account(tmp_path, accts, "a")
+    assert not acct.thumbs_dir(tmp_path).exists()

@@ -16,6 +16,9 @@ class Game:
     date: str         # ISO "YYYY-MM-DD", or "" if unparseable
     opponent: str | None
     title: str        # raw label, e.g. "Demo FC vs. Rovers"
+    # Final score as entered on Trace, from our team's side; None if not entered.
+    score_us: int | None = None
+    score_them: int | None = None
 
 # Match cards structurally: attribute/class order and nested labels can vary.
 _POSTER_RE = re.compile(r'/teams/([a-z0-9]+)/games/([a-z0-9]+-\d+)/')
@@ -144,7 +147,8 @@ def _list_api_games(request, team_url, max_games):
         opponent = other.get("title") or other.get("name") or ""
         games.append(Game(id=f"{slug}-{row['game_id']}", team_id=slug,
                           date=(row.get("full_date") or "")[:10], opponent=opponent,
-                          title=(ours.get("title") or slug) + " vs. " + opponent))
+                          title=(ours.get("title") or slug) + " vs. " + opponent,
+                          score_us=ours.get("score"), score_them=other.get("score")))
     return sorted(games, key=lambda g: (g.date, int(g.id.rsplit("-", 1)[1])), reverse=True)[:max_games]
 
 

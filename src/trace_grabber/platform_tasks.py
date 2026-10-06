@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import paths
@@ -9,6 +10,12 @@ from . import tools
 PLIST_LABEL = "com.tracedownloader"
 LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 WIN_TASK = "TraceDownloader"
+# Opening TraceDown at login, so automatic downloads keep going after a restart.
+LOGIN_AGENT = Path.home() / "Library" / "LaunchAgents" / "com.tracedownloader.login.plist"
+WIN_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+WIN_RUN_NAME = "TraceDown"
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
 
 def run_command() -> list[str]:
     if paths.is_frozen():
@@ -49,6 +56,48 @@ def _win_enable(interval_hours):
 def _win_disable():
     subprocess.run(["schtasks", "/Delete", "/F", "/TN", WIN_TASK], check=False, **tools.subprocess_flags())
 
+def background_command() -> list[str]:
+    """How to start the app quietly in the background (window hidden)."""
+    if paths.is_frozen():
+        return [sys.executable, "--background"]
+    return [sys.executable, "-m", "gui.entry", "--background"]
+
+def login_enable() -> None:
+    """Open TraceDown, in the background, whenever this person logs in."""
+    if sys.platform == "darwin":
+        args = "".join(f"<string>{a}</string>" for a in background_command())
+        LOGIN_AGENT.parent.mkdir(parents=True, exist_ok=True)
+        LOGIN_AGENT.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0"><dict>'
+            '<key>Label</key><string>com.tracedownloader.login</string>'
+            f'<key>ProgramArguments</key><array>{args}</array>'
+            '<key>RunAtLoad</key><true/>'
+            '</dict></plist>\n', encoding="utf-8")
+    elif sys.platform == "win32":
+        exe, *rest = background_command()
+        subprocess.run(["reg", "add", WIN_RUN_KEY, "/v", WIN_RUN_NAME, "/t", "REG_SZ",
+                        "/d", " ".join([f'"{exe}"', *rest]), "/f"],
+                       check=False, capture_output=True, **tools.subprocess_flags())
+
+def login_disable() -> None:
+    if sys.platform == "darwin":
+        LOGIN_AGENT.unlink(missing_ok=True)
+    elif sys.platform == "win32":
+        subprocess.run(["reg", "delete", WIN_RUN_KEY, "/v", WIN_RUN_NAME, "/f"],
+                       check=False, capture_output=True, **tools.subprocess_flags())
+
+def login_enabled() -> bool:
+    if sys.platform == "darwin":
+        return LOGIN_AGENT.exists()
+    if sys.platform == "win32":
+        r = subprocess.run(["reg", "query", WIN_RUN_KEY, "/v", WIN_RUN_NAME],
+                           check=False, capture_output=True, **tools.subprocess_flags())
+        return r.returncode == 0
+    return False
+
 def schedule_enable(interval_hours: int = 3) -> None:
     if sys.platform == "darwin":
         _mac_enable(interval_hours)
@@ -70,16 +119,70 @@ def schedule_enabled() -> bool:
         return r.returncode == 0
     return False
 
+def _set_execution_state(flags: int) -> None:
+    import ctypes
+    ctypes.windll.kernel32.SetThreadExecutionState(flags)
+
+def _try_execution_state(flags: int) -> None:
+    try:
+        _set_execution_state(flags)
+    except Exception:
+        pass
+
+@contextmanager
+def keep_awake():
+    """Stop Windows idle-sleeping for the duration (the display may still turn off).
+
+    The request belongs to the calling thread, so enter and exit on the same one.
+    """
+    if sys.platform != "win32":
+        yield
+        return
+    _try_execution_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    try:
+        yield
+    finally:
+        _try_execution_state(ES_CONTINUOUS)
+
+def open_file(path) -> None:
+    """Open a file in the default app (a video in the default player)."""
+    opener = "open" if sys.platform == "darwin" else "explorer" if sys.platform == "win32" else "xdg-open"
+    subprocess.run([opener, str(path)], check=False)
+
+def reveal_file(path) -> None:
+    """Show a file selected in Finder / Explorer."""
+    if sys.platform == "darwin":
+        subprocess.run(["open", "-R", str(path)], check=False)
+    elif sys.platform == "win32":
+        subprocess.run(["explorer", f"/select,{path}"], check=False)
+    else:
+        subprocess.run(["xdg-open", str(Path(path).parent)], check=False)
+
+# A toast through the notification system built into Windows 10/11 — no add-on
+# module. It is posted under Windows PowerShell's own app identity, the one
+# identity every PC already has registered, so the toast is not silently dropped.
+# The message is read from the environment so it never needs escaping, and the
+# script has no double quotes, so passing it on the command line cannot mangle it.
+_WIN_TOAST = (
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
+    "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null; "
+    "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument; "
+    "$xml.LoadXml('<toast><visual><binding template=''ToastGeneric''><text>TraceDown</text><text></text></binding></visual></toast>'); "
+    "$xml.GetElementsByTagName('text').Item(1).AppendChild($xml.CreateTextNode($env:TRACEDOWN_MESSAGE)) | Out-Null; "
+    "$toast = New-Object Windows.UI.Notifications.ToastNotification $xml; "
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+    "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show($toast)"
+)
+
 def notify(message: str) -> None:
     try:
         if sys.platform == "darwin":
             subprocess.run(["osascript", "-e",
                 f'display notification "{message}" with title "TraceDown"'],
                 check=False)
-        elif os.name == "nt":
-            safe = message.replace("'", "")
-            subprocess.run(["powershell", "-NoProfile", "-Command",
-                f"New-BurntToastNotification -Text 'TraceDown','{safe}'"],
-                check=False, **tools.subprocess_flags())
+        elif sys.platform == "win32":
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _WIN_TOAST],
+                           check=False, env={**os.environ, "TRACEDOWN_MESSAGE": message},
+                           **tools.subprocess_flags())
     except Exception:
         pass

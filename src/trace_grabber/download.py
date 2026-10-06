@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 
 from .progress import parse_out_time, parse_total_size, percent
-from .tools import ffmpeg_path, subprocess_flags
+from .tools import complete_or_nothing, ffmpeg_path, subprocess_flags
 
 def build_ffmpeg_cmd(m3u8_url: str, dest: Path, headers: dict[str, str],
                      stream_progress: bool = False) -> list[str]:
@@ -19,7 +19,13 @@ def build_ffmpeg_cmd(m3u8_url: str, dest: Path, headers: dict[str, str],
 
 def download(m3u8_url: str, dest: Path, headers: dict[str, str],
              progress_cb=None, duration: float = 0.0, on_proc=None) -> None:
+    """Download a stream to dest. The file only appears under that name once it
+    is whole (see complete_or_nothing)."""
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    with complete_or_nothing(dest) as part:
+        _download(m3u8_url, part, headers, progress_cb, duration, on_proc)
+
+def _download(m3u8_url, dest, headers, progress_cb, duration, on_proc) -> None:
     if progress_cb is None:
         cmd = build_ffmpeg_cmd(m3u8_url, dest, headers)
         cmd[0] = ffmpeg_path()
