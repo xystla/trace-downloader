@@ -21,3 +21,4 @@ docs/superpowers/
 assets/icon.iconset/
 !assets/screenshot.png
 !assets/screenshots/*.png
+!assets/banner.png

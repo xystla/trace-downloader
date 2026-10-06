@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="TraceDown. Every game, yours to keep. Save your team's Trace games, highlights and stats to your own computer." width="100%">
+</p>
+
 # TraceDown
 
 **Every game, yours to keep.**
