@@ -3,6 +3,10 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.4.1
+- Turning on automatic downloads now also sets TraceDown to open when you log in, so it is running to check for new games. You can still switch that off by itself in Settings.
+- Turning automatic downloads off stops TraceDown opening at login.
+
 ## 1.4.0
 - A welcome screen the first time you open TraceDown: pick light, dark or match your computer, and choose whether new games download automatically.
 - Automatic downloads now run inside the app: every 3 hours it saves each newly added game with its highlights and player recaps. While that is on, TraceDown stays in the menu bar (Mac) or system tray (Windows) when you close the window, and can open when you log in.

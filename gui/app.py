@@ -273,8 +273,9 @@ class Api:
         state = autodl.load(DATA)
         state.welcomed = True
         autodl.save(DATA, state)
-        self.set_auto(bool(auto))
-        self.set_login(bool(auto and login))
+        self.set_auto(bool(auto))             # which also opens the app at login
+        if autodl.load(DATA).login != bool(auto and login):
+            self.set_login(bool(auto and login))
         return {"ok": True}
 
     def set_auto(self, enabled):
@@ -282,6 +283,7 @@ class Api:
         after this moment: the games listed now are recorded as already seen."""
         platform_tasks.schedule_disable()     # the old background task is replaced by this
         state = autodl.load(DATA)
+        was_on = state.enabled
         state.enabled = bool(enabled)
         if state.enabled:
             try:
@@ -295,6 +297,11 @@ class Api:
             self._tray.set_visible(state.enabled)
         if state.enabled:
             self._schedule_auto()
+        # Automatic downloads need the app running, so switching them on also
+        # opens TraceDown at login (it can be switched back off on its own), and
+        # switching them off stops that.
+        if state.enabled != was_on or (state.login and not state.enabled):
+            self.set_login(state.enabled)
         return state.enabled
 
     def set_login(self, enabled):

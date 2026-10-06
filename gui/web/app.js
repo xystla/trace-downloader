@@ -1791,6 +1791,7 @@ el("auto").onchange = async (e) => {
   const on = await api().set_auto(e.target.checked);
   el("auto").checked = on;
   el("loginRow").hidden = !on;
+  el("login").checked = (await api().auto_settings()).login;      // on with automatic downloads, off with them
   showAutoStatus(on, "");
 };
 el("login").onchange = (e) => api().set_login(e.target.checked);

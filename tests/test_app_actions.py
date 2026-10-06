@@ -576,3 +576,29 @@ def test_heat_map_explains_a_game_trace_never_tracked(api):
     api._worker.heatmap = lambda *args: None
     result = api.get_heatmap(next(iter(api._game_cache)), True)
     assert result["ok"] is False and "tracking" in result["error"]
+
+
+def test_turning_automatic_downloads_on_also_opens_the_app_at_login(auto):
+    assert auto.set_auto(True) is True
+    assert "login on" in auto.system and auto.auto_settings()["login"] is True
+
+
+def test_login_choice_survives_while_automatic_downloads_stay_on(auto):
+    auto.set_auto(True)
+    auto.set_login(False)
+    auto.system.clear()
+    auto.set_auto(True)                              # already on: the choice isn't overridden
+    assert "login on" not in auto.system and auto.auto_settings()["login"] is False
+
+
+def test_turning_automatic_downloads_off_stops_opening_at_login(auto):
+    auto.set_auto(True)
+    auto.system.clear()
+    assert auto.set_auto(False) is False
+    assert "login off" in auto.system and auto.auto_settings()["login"] is False
+
+
+def test_welcome_can_still_decline_opening_at_login(auto):
+    auto.finish_welcome(True, False)
+    assert auto.auto_settings() == {"auto": True, "login": False, "welcome": False}
+    assert auto.system[-1] == "login off"
