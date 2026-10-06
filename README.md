@@ -5,7 +5,7 @@ A personal-use desktop app that downloads your own Trace game videos as 1080p MP
 Trace records each game in two halves. TraceDown downloads both and **automatically stitches them into a single, continuous MP4**, losslessly, with no re-encoding or quality loss, so you get one ready-to-watch file per game instead of two clips. The result is a standard MP4 you can **upload straight to YouTube** (or Hudl, Google Drive, etc.) with no extra editing or conversion.
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="TraceDown app window" width="420">
+  <img src="assets/screenshot.png" alt="TraceDown app window" width="720">
 </p>
 
 > Unofficial tool, not affiliated with or endorsed by Trace. For use with your own footage and your own Trace subscription.
