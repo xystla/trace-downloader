@@ -58,3 +58,23 @@ def test_older_highlights_folder_is_still_known(tmp_path):
     from trace_grabber.naming import game_folders
     assert game_folders(tmp_path, "2026-06-04", "Rovers").legacy_highlights == \
         tmp_path / "2026-06-04_vs-rovers_highlights"
+
+
+def test_any_video_in_the_games_own_folder_is_its_video(tmp_path):
+    from trace_grabber.naming import game_folders
+    full = game_folders(tmp_path, "2026-06-04", "Rovers").full_game
+    full.mkdir(parents=True)
+    _touch(full, "Tiger Sharks vs Rovers_half2.mp4", "Tiger Sharks vs Rovers_half1.mp4")
+    assert [p.name for p in saved_files(tmp_path, "2026-06-04", "Rovers")] == [
+        "Tiger Sharks vs Rovers_half1.mp4", "Tiger Sharks vs Rovers_half2.mp4"]
+    _touch(full, "renamed by hand.mp4")
+    assert saved_files(tmp_path, "2026-06-04", "Rovers")[0].name == "renamed by hand.mp4"      # one file before halves
+
+
+def test_unfinished_and_hidden_files_are_not_videos(tmp_path):
+    from trace_grabber.naming import game_folders
+    full = game_folders(tmp_path, "2026-06-04", "Rovers").full_game
+    full.mkdir(parents=True)
+    _touch(full, "2026-06-04_vs-rovers.part.mp4", ".hidden.mp4", "notes.txt")
+    (full / ".2026-06-04_vs-rovers_half1.pieces").mkdir()
+    assert saved_files(tmp_path, "2026-06-04", "Rovers") == []

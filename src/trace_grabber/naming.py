@@ -20,17 +20,32 @@ def build_path(output_dir: Path, date: str, half: int, opponent: str | None) -> 
     parts.append(f"half{half}")
     return _unique(output_dir, "_".join(parts))
 
-def combined_path(output_dir: Path, date: str, opponent: str | None) -> Path:
-    parts = [date]
-    if opponent:
-        parts.append(f"vs-{_slug(opponent)}")
-    return _unique(output_dir, "_".join(parts))
+def combined_path(output_dir: Path, date: str, opponent: str | None, stem: str | None = None) -> Path:
+    return _unique(output_dir, stem or _game_stem(date, opponent))
 
-def half_path(output_dir: Path, date: str, half: int, opponent: str | None) -> Path:
+def half_path(output_dir: Path, date: str, half: int, opponent: str | None, stem: str | None = None) -> Path:
     """The one name a half has while its game is being downloaded in the app. A
     download that was cut off must find its earlier half again, so unlike
-    build_path this never moves on to a '-2' name."""
-    return Path(output_dir) / f"{_game_stem(date, opponent)}_half{half}.mp4"
+    build_path this never moves on to a '-2' name. `stem` is the person's own
+    name for the video (see custom_stem); without it the built-in one is used."""
+    return Path(output_dir) / f"{stem or _game_stem(date, opponent)}_half{half}.mp4"
+
+_NOT_IN_NAMES = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+STEM_MAX = 120
+
+def custom_stem(pattern: str | None, date: str, opponent: str | None, team: str | None) -> str | None:
+    """The file name (without '.mp4') a pattern such as '{team} vs {opponent} {date}'
+    gives a game's video, or None when there is no pattern or it leaves nothing,
+    which means the built-in name. Characters no file name may hold become '-',
+    so a pattern can't reach outside the game's folder, and '_half' is kept for
+    the app's own use: that is how a half is told from a whole game."""
+    pattern = (pattern or "").strip()
+    if not pattern:
+        return None
+    values = {"date": date or "", "team": team or "", "opponent": opponent or "Unknown opponent"}
+    text = re.sub(r"\{(date|team|opponent)\}", lambda m: values[m.group(1)], pattern)
+    text = re.sub(r"\s+", " ", _NOT_IN_NAMES.sub("-", text)).replace("_half", "-half")
+    return text.strip(" .-")[:STEM_MAX].strip(" .-") or None
 
 def _game_stem(date: str, opponent: str | None) -> str:
     parts = [date]
@@ -78,12 +93,17 @@ def game_folders(output_dir: Path, date: str, opponent: str | None) -> GameFolde
 
 def saved_files(output_dir: Path, date: str, opponent: str | None) -> list[Path]:
     """Existing video files for a game: the combined file first, then the halves.
-    Looks in the game's Full Game folder, then loose in the team folder, where
-    older versions saved them."""
+    Whatever video is in the game's own Full Game folder is the game's video,
+    under any name (the person may name it, or rename it by hand). Loose in the
+    team folder, where older versions saved it, it is known by its name."""
+    order = lambda p: ("_half" in p.name, p.name)
+    folder = game_folders(output_dir, date, opponent).full_game
+    if folder.is_dir():
+        found = [p for p in folder.glob("*.mp4")
+                 if not p.name.startswith(".") and not p.name.endswith(".part.mp4")]
+        if found:
+            return sorted(found, key=order)
     name = re.compile(re.escape(_game_stem(date, opponent)) + r"(_half\d+)?(-\d+)?\.mp4")
-    for folder in (game_folders(output_dir, date, opponent).full_game, Path(output_dir)):
-        if folder.is_dir():
-            found = [p for p in folder.iterdir() if name.fullmatch(p.name)]
-            if found:
-                return sorted(found, key=lambda p: ("_half" in p.name, p.name))
+    if Path(output_dir).is_dir():
+        return sorted((p for p in Path(output_dir).iterdir() if name.fullmatch(p.name)), key=order)
     return []

@@ -46,3 +46,12 @@ def test_combine_halves_explicit_false(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("output_dir: ~/x\ncheck_interval_hours: 3\nquality: highest\ncombine_halves: false\n" + _TEAM_URLS)
     assert load_config(cfg_file).combine_halves is False
+
+
+def test_file_name_pattern_is_optional(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("output_dir: ~/Trace Videos\ncheck_interval_hours: 3\nquality: highest\n")
+    assert load_config(cfg_file).file_name == ""
+    cfg_file.write_text("output_dir: ~/Trace Videos\ncheck_interval_hours: 3\nquality: highest\n"
+                        "file_name: '{team} vs {opponent}'\n")
+    assert load_config(cfg_file).file_name == "{team} vs {opponent}"

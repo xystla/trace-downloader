@@ -11,6 +11,7 @@ class Config:
     quality: str
     team_urls: list[str] = field(default_factory=list)
     combine_halves: bool = True
+    file_name: str = ""      # the person's pattern for naming full-game videos; empty = the built-in names
 
 def load_config(path: Path) -> Config:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -27,4 +28,5 @@ def load_config(path: Path) -> Config:
         quality=quality,
         team_urls=list(team_urls),
         combine_halves=combine,
+        file_name=str(data.get("file_name") or ""),
     )
