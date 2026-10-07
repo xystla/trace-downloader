@@ -1167,10 +1167,19 @@ function dequeue(key) {
 
 // Throw away what a cut-off full-game download left on disk.
 async function discardDownload(id) {
-  await api().discard_download(id);
+  let res;
+  try { res = await api().discard_download(id); } catch (e) { res = { ok: false, error: String(e) }; }
+  const i = jobs.findIndex((j) => j.key === "game:" + id && j.state !== "running" && j.state !== "waiting");
+  if (!(res && res.ok)) {
+    // Nothing was deleted (the game is downloading, or saved since): leave things as they are and say so.
+    const why = (res && res.error) || "Couldn't delete this download.";
+    if (i >= 0) jobs[i].text = why;
+    setNote(id, why, false);
+    renderDownloads();
+    return;
+  }
   partial.delete(id);
   gamePercent.delete(id);
-  const i = jobs.findIndex((j) => j.key === "game:" + id && j.state !== "running" && j.state !== "waiting");
   if (i >= 0) jobs.splice(i, 1);
   setNote(id, "", false);
   redrawButtons(id);

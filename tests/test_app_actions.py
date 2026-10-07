@@ -790,3 +790,36 @@ def test_status_carries_the_automatic_options(auto, tmp_path):
     auto._worker.logged_in = lambda: True
     auto._worker.login_detail = lambda: ""
     assert auto.get_status()["auto_options"] == {"full": True, "highlights": True, "recaps": True, "interval": 3}
+
+
+def test_a_discard_that_was_refused_says_so(api):
+    api._worker.discard_partial = lambda game_id, date, opponent: False      # saved, or downloading right now
+    result = api.discard_download("t-2")
+    assert result["ok"] is False and "downloading or already saved" in result["error"]
+
+
+def test_switching_auto_off_during_a_run_is_not_undone_by_it(auto, tmp_path):
+    from trace_grabber import autodl
+    _config(auto, tmp_path)
+    _new_game(auto)
+    auto.set_auto_choices({"full": False, "highlights": True, "recaps": False})
+    def export_highlights(game_id, date, opponent, on_progress=None):
+        auto.set_auto(False)                       # the person switches it off while this runs
+        return "/v/g_highlights", 11, False
+    auto._worker.export_highlights = export_highlights
+    auto.auto_check()
+    assert auto.auto_settings()["auto"] is False
+    assert "t-3" in autodl.load(tmp_path).seen["demo"]         # and the game is still noted as handled
+
+
+def test_a_choice_changed_during_a_run_survives_the_low_disk_note(auto, tmp_path):
+    from trace_grabber import autodl, space
+    _config(auto, tmp_path)
+    _new_game(auto)
+    def no_room(*args):
+        auto.set_auto_choices({"full": True, "highlights": False, "recaps": True})
+        raise space.NotEnoughSpace("Not enough disk space.")
+    auto._worker.download_game = no_room
+    auto.auto_check()
+    state = autodl.load(tmp_path)
+    assert (state.highlights, state.low_disk) == (False, True)

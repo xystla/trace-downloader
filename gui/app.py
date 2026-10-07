@@ -238,8 +238,10 @@ class Api:
 
     def discard_download(self, game_id):
         """Delete what a cut-off full-game download left on disk."""
-        _, error = self._for_game(
+        done, error = self._for_game(
             game_id, lambda g: self._w().discard_partial(g.id, g.date, g.opponent))
+        if not error and not done:
+            error = "Nothing was deleted: this game is downloading or already saved."
         return {"ok": False, "error": error} if error else {"ok": True}
 
     def disk_free(self):
@@ -367,6 +369,14 @@ class Api:
             # If you were busy downloading, look again in ten minutes rather than in three hours.
             self._schedule_auto(first_in_secs=None if ran else 600)
 
+    def _auto_change(self, change):
+        """Apply one change to the automatic-download settings as they are on disk
+        right now. A check can run for hours while the person changes settings; a
+        copy loaded when it started must never be saved back over their choices."""
+        state = autodl.load(DATA)
+        change(state)
+        autodl.save(DATA, state)
+
     def auto_check(self):
         """Fetch every game added since automatic downloads were switched on:
         whichever of the full game, its highlights and reel, and each player
@@ -392,18 +402,16 @@ class Api:
                 if state.full:
                     result = self._run_download(g.id)
                     if result.get("no_space"):
-                        if not state.low_disk:        # say it once, not on every check
+                        if not autodl.load(DATA).low_disk:        # say it once, not on every check
                             platform_tasks.notify("Automatic downloads paused: not enough disk space.")
-                            state.low_disk = True
-                            autodl.save(DATA, state)
+                            self._auto_change(lambda s: setattr(s, "low_disk", True))
                         break
                     if not self._saved(result):
                         if w.cancelled():
                             break
                         continue                  # no video yet, or it failed: try again next time
-                    if state.low_disk:
-                        state.low_disk = False
-                        autodl.save(DATA, state)
+                    if autodl.load(DATA).low_disk:
+                        self._auto_change(lambda s: setattr(s, "low_disk", False))
                     got = True
                 if state.highlights:
                     got = bool(self.download_highlights(g.id).get("ok")) or got
@@ -416,8 +424,7 @@ class Api:
                 if not state.full:
                     # Without its video a game is never marked done, so note here
                     # that it has been dealt with (or is still to be tried again).
-                    autodl.settle(state, account, g.id, got, date.today())
-                    autodl.save(DATA, state)
+                    self._auto_change(lambda s: autodl.settle(s, account, g.id, got, date.today()))
                 saved += got
             if saved:
                 platform_tasks.notify(
