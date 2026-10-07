@@ -82,9 +82,12 @@ def _gui_worker(monkeypatch, tmp_path, masters):
     instance._cancel = threading.Event()
     instance._resolve_masters = lambda team_id, game_id: masters
     monkeypatch.setattr(worker, "cookie_headers", lambda ctx: {})
-    monkeypatch.setattr(worker.quality, "pick_from_master", lambda text, url, quality: "variant")
-    monkeypatch.setattr(worker, "playlist_duration", lambda text: 0)
-    monkeypatch.setattr(worker, "download", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker.quality, "pick_variant", lambda text, url, quality: ("variant", 0))
+    monkeypatch.setattr(worker.segments, "parse", lambda text, url: [(2.0, "https://t/a.ts")])
+    def fetch(parts, dest, headers, quality, **kwargs):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"video")
+    monkeypatch.setattr(worker.pieces, "fetch", fetch)
     return instance
 
 
@@ -100,7 +103,11 @@ def test_game_video_is_saved_into_the_games_full_game_folder(monkeypatch, tmp_pa
     instance = _gui_worker(monkeypatch, tmp_path, ["half1", "half2"])
     from gui import worker
     saved = []
-    monkeypatch.setattr(worker, "download", lambda url, dest, *args, **kwargs: saved.append(dest))
+    def fetch(parts, dest, headers, quality, **kwargs):
+        saved.append(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"video")
+    monkeypatch.setattr(worker.pieces, "fetch", fetch)
     instance._download_game("demo-7", "demo", "2026-09-22", "Rivals", lambda *a: None)
     full = tmp_path / "2026-09-22_vs-rivals" / "Full Game"
     assert saved == [full / "2026-09-22_vs-rivals_half1.mp4", full / "2026-09-22_vs-rivals_half2.mp4"]

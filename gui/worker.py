@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 from trace_grabber.config import load_config
 from trace_grabber import accounts as accts_mod
 from trace_grabber import analytics_sync
-from trace_grabber import analytics, highlights, radar, recaps, segments
+from trace_grabber import analytics, highlights, pieces, radar, recaps, segments, space
 from trace_grabber.analytics_sync import AnalyticsResult
 from trace_grabber import paths
 from trace_grabber.platform_tasks import keep_awake
@@ -19,10 +19,9 @@ from trace_grabber.session import (is_logged_in, login_status, api_logged_in,
                                     discover_teams, cookie_headers)
 from trace_grabber.games import list_games
 from trace_grabber import streams, quality
-from trace_grabber.download import download
-from trace_grabber.naming import build_path, game_folders, saved_files
+from trace_grabber.naming import game_folders, half_path, saved_files
 from trace_grabber.state import load_state, mark_done
-from trace_grabber.progress import playlist_duration
+from trace_grabber.progress import Rate, percent
 from trace_grabber.selectors import BASE_URL
 
 DATA = paths.data_dir()
@@ -86,6 +85,15 @@ class Worker:
 
     def download_game(self, game_id, team_id, date, opponent, on_progress):
         return self.submit(lambda: self._download_game(game_id, team_id, date, opponent, on_progress))
+
+    def partials(self, games, done):
+        return self.submit(lambda: self._partials(games, done))
+
+    def discard_partial(self, game_id, date, opponent):
+        return self.submit(lambda: self._discard_partial(game_id, date, opponent))
+
+    def disk_free(self):
+        return self.submit(lambda: self._disk_free())
 
     def get_thumb(self, team_id, game_id, date=None, opponent=None):
         return self.submit(lambda: self._get_thumb(team_id, game_id, date, opponent))
@@ -228,30 +236,67 @@ class Worker:
 
     @keep_awake()
     def _download_game(self, game_id, team_id, date, opponent, on_progress):
+        """Download a game's halves piece by piece; returns how many halves are
+        saved. A half finished by an earlier attempt is kept, and pieces already
+        on disk are not fetched again. on_progress gets a dict: half, percent of
+        the whole game, speed (MB/s), eta (seconds or None), joining."""
         acct = self._active()
         headers = cookie_headers(self._ctx)
         masters = self._resolve_masters(team_id, game_id)
         LOG.info("download %s halves=%s acct=%s", game_id, len(masters), acct.id)
-        saved = 0
         out_base = self._folders(game_id, date, opponent).full_game
+        halves = []                 # (number, where it goes, its pieces, estimated bytes)
+        for number, murl in enumerate(masters, 1):
+            request = self._ctx.request
+            variant, bandwidth = quality.pick_variant(request.get(murl).text(), murl, self._cfg.quality)
+            parts = segments.parse(request.get(variant).text(), variant)
+            dest = half_path(out_base, date or game_id, number, opponent or None)
+            halves.append((number, dest, parts,
+                           space.estimate(bandwidth, sum(seconds for seconds, _ in parts))))
+        if halves:
+            space.check(out_base, space.needed(
+                [(size, pieces.bytes_on_disk(dest), dest.exists()) for _, dest, _, size in halves],
+                combine=self._cfg.combine_halves))
+        # Progress is for the whole game: what earlier halves weigh, plus this half so far.
+        sizes = {number: (dest.stat().st_size if dest.exists() else size)
+                 for number, dest, _, size in halves}
+        finished = 0
+        rate = Rate()
+        last_sent = [None]
+
+        def report(number, done, total, pieces_done, pieces_total):
+            if total:
+                sizes[number] = total
+            game_done, game_total = finished + done, sum(sizes.values())
+            now = time.monotonic()
+            rate.add(now, game_done)
+            joining = pieces_done == pieces_total
+            if not joining and last_sent[0] is not None and now - last_sent[0] < 0.5:
+                return              # a few pieces land every second; twice a second is plenty
+            last_sent[0] = now
+            on_progress({"half": number, "percent": percent(game_done, game_total),
+                         "speed": round(rate.bytes_per_sec() / 1_000_000, 1),
+                         "eta": rate.eta(game_total - game_done), "joining": joining})
+
+        saved = 0
         half_files = []
-        for half, murl in enumerate(masters, 1):
+        for number, dest, parts, _ in halves:
             if self._cancel.is_set():
                 break
-            variant = quality.pick_from_master(self._ctx.request.get(murl).text(), murl, self._cfg.quality)
-            dur = playlist_duration(self._ctx.request.get(variant).text())
-            dest = build_path(out_base, date or game_id, half, opponent or None)
-            try:
-                download(variant, dest, headers,
-                         progress_cb=lambda pct, mbps, h=half: on_progress(h, pct, mbps),
-                         duration=dur, on_proc=lambda pr: setattr(self, "_proc", pr))
-            except RuntimeError:
-                if self._cancel.is_set():
-                    Path(dest).unlink(missing_ok=True)  # remove the partial file
-                    break
-                raise
-            finally:
-                self._proc = None
+            if not dest.exists():
+                try:
+                    pieces.fetch(parts, dest, headers, self._cfg.quality,
+                                 on_progress=lambda *numbers, n=number: report(n, *numbers),
+                                 should_stop=self._cancel.is_set,
+                                 on_proc=lambda pr: setattr(self, "_proc", pr))
+                except RuntimeError:
+                    if self._cancel.is_set():
+                        break       # stopped: what was fetched stays, for Resume
+                    raise
+                finally:
+                    self._proc = None
+            sizes[number] = dest.stat().st_size
+            finished += sizes[number]
             saved += 1
             half_files.append(dest)
         if (self._cfg.combine_halves and not self._cancel.is_set()
@@ -272,6 +317,36 @@ class Worker:
             analytics_sync.save_for_download(self._ctx.request, acct, DATA, game_id,
                                              videos_dir=self._videos_dir())
         return saved
+
+    def _half_dests(self, game_id, date, opponent):
+        out_base = self._folders(game_id, date, opponent).full_game
+        return [half_path(out_base, date or game_id, number, opponent or None) for number in (1, 2)]
+
+    def _partials(self, games, done):
+        """{game id: share downloaded, 0-1} for games not saved yet that have a
+        cut-off full-game download on disk."""
+        if not self._active():
+            return {}
+        found = {}
+        for g in games:
+            if g.id in done:
+                continue
+            shares = [1.0 if dest.exists() else pieces.progress_of(dest)
+                      for dest in self._half_dests(g.id, g.date, g.opponent)]
+            if any(share is not None for share in shares):
+                found[g.id] = sum(share or 0.0 for share in shares) / len(shares)
+        return found
+
+    def _discard_partial(self, game_id, date, opponent):
+        """Delete what a cut-off full-game download left: pieces and any finished half."""
+        for dest in self._half_dests(game_id, date, opponent):
+            pieces.discard(dest)
+            dest.unlink(missing_ok=True)
+        return True
+
+    def _disk_free(self):
+        acct = self._active()
+        return space.free(acct.output_dir(self._cfg.output_dir) if acct else self._cfg.output_dir)
 
     def _resolve_masters(self, team_id, game_id):
         """Known prefixes first; watch-page fallback for any new path variant."""
