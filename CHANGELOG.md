@@ -10,6 +10,12 @@ first time it opens after updating, and the same list becomes the release notes.
 - Choose what automatic downloads fetch for each new game (the full game, highlights, player recaps) and how often they check: every hour up to once a day.
 - Move downloads up and down the waiting line.
 - Fixed a retry after a failed second half downloading the first half again as an extra file.
+- Watch at your own speed, from quarter speed to double, and step through a moment frame by frame.
+- Keyboard shortcuts on a game's page: play and pause, skip, change speed, mute, full screen, and jump between moments. Press ? to see them all.
+- Full screen inside TraceDown.
+- A game reopens where you stopped watching.
+- Bookmark any moment of a game with a note. Your bookmarks sit on the match timeline with Trace's shots, and are kept in the game's folder.
+- Cut a clip of your own: mark where it starts and ends, and it is saved to the game's My Clips folder without losing quality.
 
 ## 1.4.2
 - Fixed the Mac app opening to an empty window after updating: it now downloads the newer video engine it needs instead of trying to use the old one.
