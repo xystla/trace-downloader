@@ -19,7 +19,7 @@ from gui.media import MediaServer
 from gui.tray import Tray
 from gui.worker import Worker
 from gui.viewmodel import games_view, connection_state, score_view
-from trace_grabber import analytics, autodl, paths, platform_tasks, updates
+from trace_grabber import analytics, autodl, paths, platform_tasks, space, updates
 from trace_grabber.config import load_config
 
 WEB = paths.resource_dir() / "gui" / "web"
@@ -78,7 +78,9 @@ class Api:
         games, done, errors = self._w().games_result()
         self._game_cache = {g.id: g for g in games}
         clips = self._w().clip_counts(games)
-        views = [{**view, "clips": clips.get(view["id"], 0)} for view in games_view(games, done)]
+        partial = self._w().partials(games, done)      # full-game downloads that were cut off
+        views = [{**view, "clips": clips.get(view["id"], 0), "partial": partial.get(view["id"])}
+                 for view in games_view(games, done)]
         return {"games": views, "errors": errors}
 
     def _run_download(self, game_id):
@@ -91,9 +93,8 @@ class Api:
         if not g:
             return {"ok": False, "error": "game not found"}
 
-        def on_progress(half, pct, mbps):
-            self._emit("progress", {"id": game_id, "half": half, "percent": pct,
-                                    "speed": round(mbps, 1)})
+        def on_progress(info):
+            self._emit("progress", {"id": game_id, **info})
         try:
             n = self._w().download_game(g.id, g.team_id, g.date, g.opponent, on_progress)
             if self._w().cancelled():
@@ -103,7 +104,7 @@ class Api:
             return {"ok": True, "files": n}
         except Exception as e:
             self._emit("error", {"id": game_id, "message": str(e)})
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "error": str(e), "no_space": isinstance(e, space.NotEnoughSpace)}
 
     def _saved(self, result):
         return bool(result.get("ok") and result.get("files")) and not self._w().cancelled()
@@ -231,6 +232,20 @@ class Api:
     def cancel(self):
         self._w().cancel()
         return {"ok": True}
+
+    def discard_download(self, game_id):
+        """Delete what a cut-off full-game download left on disk."""
+        _, error = self._for_game(
+            game_id, lambda g: self._w().discard_partial(g.id, g.date, g.opponent))
+        return {"ok": False, "error": error} if error else {"ok": True}
+
+    def disk_free(self):
+        """Free space where games are saved, for the Downloads page."""
+        try:
+            free = self._w().disk_free()
+        except Exception:
+            return {"ok": False}
+        return {"ok": True, "free": free, "text": space.size_text(free), "low": free < space.LOW}
 
     def get_thumb(self, team_id, game_id):
         g = self._game_cache.get(game_id)

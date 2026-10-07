@@ -23,6 +23,7 @@ def api(monkeypatch):
     api.is_cancelled = False
     api._worker = SimpleNamespace(
         clear_cancel=lambda: None, cancelled=lambda: api.is_cancelled,
+        partials=lambda games, done: {},
         download_game=lambda *a: api.saved_per_game,
         list_games=lambda: (games, set()),
         game_files=lambda game_id, date, opponent: api.files.get(game_id, []))
@@ -602,3 +603,59 @@ def test_welcome_can_still_decline_opening_at_login(auto):
     auto.finish_welcome(True, False)
     assert auto.auto_settings() == {"auto": True, "login": False, "welcome": False}
     assert auto.system[-1] == "login off"
+
+
+def test_game_download_progress_reaches_the_page_with_time_left(api):
+    def download_game(game_id, team_id, date, opponent, on_progress):
+        on_progress({"half": 1, "percent": 25, "speed": 8.4, "eta": 360, "joining": False})
+        return 2
+    api._worker.download_game = download_game
+    api.download_game("t-1")
+    assert ("progress", {"id": "t-1", "half": 1, "percent": 25, "speed": 8.4, "eta": 360,
+                         "joining": False}) in api.events
+
+
+def test_game_list_says_which_games_have_a_cut_off_download(api):
+    games = list(api._game_cache.values())
+    api._worker.games_result = lambda: (games, {"t-1"}, [])
+    api._worker.clip_counts = lambda listed: {}
+    api._worker.partials = lambda listed, done: {"t-2": 0.62}
+    views = api.get_games()["games"]
+    assert [(v["id"], v["partial"]) for v in views] == [("t-1", None), ("t-2", 0.62)]
+
+
+def test_a_cut_off_download_can_be_discarded(api):
+    thrown = []
+    api._worker.discard_partial = lambda game_id, date, opponent: thrown.append((game_id, date, opponent)) or True
+    assert api.discard_download("t-2") == {"ok": True}
+    assert thrown == [("t-2", "2026-06-01", "United")]
+    assert api.discard_download("nope")["ok"] is False
+
+
+def test_a_game_that_will_not_fit_says_so(api):
+    from trace_grabber import space
+    def download_game(*args):
+        raise space.NotEnoughSpace("Not enough disk space: this game needs about 9.0 GB and 3.0 GB is free.")
+    api._worker.download_game = download_game
+    result = api.download_game("t-1")
+    assert result["ok"] is False and result["no_space"] is True
+    assert ("error", {"id": "t-1", "message": result["error"]}) in api.events
+    assert api.notes == []
+
+
+def test_any_other_failure_is_not_a_disk_problem(api):
+    def download_game(*args):
+        raise RuntimeError("The connection dropped.")
+    api._worker.download_game = download_game
+    assert api.download_game("t-1")["no_space"] is False
+
+
+def test_free_space_is_reported_in_words_and_flagged_when_low(api):
+    api._worker.disk_free = lambda: 212_000_000_000
+    assert api.disk_free() == {"ok": True, "free": 212_000_000_000, "text": "212 GB", "low": False}
+    api._worker.disk_free = lambda: 3_200_000_000
+    assert api.disk_free()["low"] is True and api.disk_free()["text"] == "3.2 GB"
+    def gone():
+        raise OSError("drive not connected")
+    api._worker.disk_free = gone
+    assert api.disk_free() == {"ok": False}
