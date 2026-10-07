@@ -16,6 +16,10 @@ first time it opens after updating, and the same list becomes the release notes.
 - A game reopens where you stopped watching.
 - Bookmark any moment of a game with a note. Your bookmarks sit on the match timeline with Trace's shots, and are kept in the game's folder.
 - Cut a clip of your own: mark where it starts and ends, and it is saved to the game's My Clips folder without losing quality.
+- A Storage page: see what each game takes on your disk and remove a full game, or everything for a game, from inside TraceDown. Removed files go to the Trash (Recycle Bin on Windows), so they can be put back.
+- TraceDown notices when a saved video has been moved, renamed or deleted. Download it again, or use Find it… to show where it is now; it is left where you put it.
+- Renaming a video inside a game's folder no longer loses it.
+- Choose how full-game videos are named, from the date, your team and the opponent.
 
 ## 1.4.2
 - Fixed the Mac app opening to an empty window after updating: it now downloads the newer video engine it needs instead of trying to use the old one.
