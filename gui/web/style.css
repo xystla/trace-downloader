@@ -307,6 +307,26 @@ button.done { color:var(--accent-text); }
 .player-bar { display:flex; align-items:center; gap:10px; margin-top:10px; }
 .player-label { font-size:12.5px; font-weight:600; color:var(--muted); }
 .player-bar select { flex:1; min-width:0; max-width:420px; }
+.player-bar .spacer { flex:1; }
+.player-tools { display:flex; gap:6px; }
+.player-notes { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+.player-notes:empty { display:none; }
+.player-note { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--muted); }
+.player-note button { padding:5px 10px; font-size:12.5px; }
+.vc-speed { flex:none; width:auto; margin:0; padding:3px 2px; border:0; border-radius:8px; background:transparent;
+  color:#fff; font-size:12.5px; font-variant-numeric:tabular-nums; cursor:pointer; }
+.vc-speed option { color:#111; }
+/* Full screen: the frame covers the app's window, and the whole picture is shown. */
+.player-frame.is-full { position:fixed; inset:0; z-index:90; border-radius:0; }
+.player-frame.is-full video { width:100%; height:100%; aspect-ratio:auto; object-fit:contain; }
+.player-flash { position:absolute; top:14px; left:50%; transform:translateX(-50%); padding:6px 12px; border-radius:10px;
+  background:rgba(10,14,19,.86); color:#fff; font-size:14px; font-weight:600; pointer-events:none;
+  animation:flash-out 1s ease forwards; }
+@keyframes flash-out { 0%, 60% { opacity:1; } 100% { opacity:0; } }
+.keys { border-collapse:collapse; margin:4px 0 8px; }
+.keys td { padding:5px 16px 5px 0; font-size:13.5px; vertical-align:middle; }
+kbd { display:inline-block; min-width:18px; padding:2px 6px; border:1px solid var(--border-strong); border-radius:6px;
+  background:var(--raised); font:600 12px/1.4 inherit; text-align:center; }
 /* ---- match timeline ---- */
 .timeline { display:flex; flex-direction:column; gap:8px; }
 .timeline h3 { margin:0; }

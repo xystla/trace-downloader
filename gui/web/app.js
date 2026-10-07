@@ -208,6 +208,7 @@ function filteredGames() {
 }
 
 function renderGameList() {
+  if (windowFull) leaveFull();      // the video about to be redrawn is the one filling the screen
   const box = el("games");
   box.innerHTML = "";
   const query = el("gameSearch").value.trim().toLowerCase();
@@ -274,8 +275,10 @@ function renderSingle(box, games) {
   box.appendChild(nav);
   const g = games[singleIndex];
   appendGame(box, g);
-  attachPlayer(el("g-" + g.id), g.id);      // highlights or recaps play here even without the full game
-  attachTimeline(el("g-" + g.id), g);
+  const card = el("g-" + g.id);
+  // Highlights or recaps play here even without the full game. The timeline is
+  // drawn once the player is in place: your bookmarks need to know what is saved.
+  attachPlayer(card, g.id).finally(() => attachTimeline(card, g));
   appendGameStats(box, g);
 }
 
@@ -324,36 +327,58 @@ async function attachPlayer(card, id) {
   frame.append(video, videoControls(frame, video));
   wrap.append(frame);
 
-  const player = { video, sources, current: -1 };
+  const bar = node("div", "player-bar");
+  const label = node("span", "player-label", "Now playing");
+  const picker = document.createElement("select");
+  picker.setAttribute("aria-label", "Now playing");
+  const addOption = (src, i) => {
+    let group = [...picker.querySelectorAll("optgroup")].find((x) => x.label === src.group);
+    if (!group) {
+      group = document.createElement("optgroup");
+      group.label = src.group;
+      picker.append(group);
+    }
+    const option = node("option", null, src.label);
+    option.value = String(i);
+    group.append(option);
+    label.hidden = picker.hidden = sources.length < 2;      // one thing to play needs no picker
+  };
+  sources.forEach(addOption);
+  const tools = node("div", "player-tools");
+  tools.append(iconButton("keyboard", "Keyboard shortcuts (?)", () => el("shortcuts").showModal()));
+  bar.append(label, picker, node("span", "spacer"), tools);
+  const notes = node("div", "player-notes");
+  wrap.append(bar, notes);
+
+  const player = { video, sources, current: -1, onShow: [] };
   // Switch what is playing; `then` runs once the new video is ready to seek.
   player.show = (index, then) => {
     if (index === player.current) { if (then) then(); return; }
     player.current = index;
-    if (picker) picker.value = String(index);
+    picker.value = String(index);
     video.src = sources[index].url;
     if (then) video.addEventListener("loadedmetadata", then, { once: true });
     card.classList.toggle("is-watching-full", !!sources[index].full);
+    player.onShow.forEach((fn) => fn());
   };
-  let picker = null;
-  if (sources.length > 1) {
-    picker = document.createElement("select");
-    picker.setAttribute("aria-label", "Now playing");
-    let group = null;
-    sources.forEach((src, i) => {
-      if (!group || group.label !== src.group) {
-        group = document.createElement("optgroup");
-        group.label = src.group;
-        picker.append(group);
-      }
-      const option = node("option", null, src.label);
-      option.value = String(i);
-      group.append(option);
-    });
-    picker.onchange = () => player.show(Number(picker.value), () => video.play().catch(() => {}));
-    const bar = node("div", "player-bar");
-    bar.append(node("span", "player-label", "Now playing"), picker);
-    wrap.append(bar);
-  }
+  // Something new to play (a clip just cut); returns its place in the picker.
+  player.addSource = (src) => {
+    sources.push(src);
+    addOption(src, sources.length - 1);
+    return sources.length - 1;
+  };
+  // A line of words and buttons under the player, one per subject; nothing clears it.
+  player.note = (slot, ...content) => {
+    let line = notes.querySelector(`[data-slot="${slot}"]`);
+    if (!content.length || content[0] == null) { if (line) line.remove(); return; }
+    if (!line) {
+      line = node("div", "player-note");
+      line.dataset.slot = slot;
+      notes.append(line);
+    }
+    line.replaceChildren(...content);
+  };
+  picker.onchange = () => player.show(Number(picker.value), () => video.play().catch(() => {}));
   video.addEventListener("timeupdate", () => movePlayhead(card));
   card._player = player;
   player.show(0);
@@ -375,7 +400,18 @@ function videoControls(frame, video) {
   const volume = document.createElement("input");
   volume.type = "range"; volume.className = "vc-volume"; volume.min = "0"; volume.max = "1"; volume.step = "0.05"; volume.value = "1";
   volume.setAttribute("aria-label", "Volume");
-  bar.append(play, time, seek, mute, volume);
+  const speed = document.createElement("select");
+  speed.className = "vc-speed";
+  speed.setAttribute("aria-label", "Playback speed");
+  speed.title = "Playback speed (< and > keys)";
+  SPEEDS.forEach((rate) => {
+    const option = node("option", null, rate + "×");
+    option.value = String(rate);
+    speed.append(option);
+  });
+  speed.onchange = () => setSpeed(video, Number(speed.value));
+  const full = iconButton("full", "Full screen (F)", () => toggleFull(frame));
+  bar.append(play, time, seek, speed, mute, volume, full);
 
   const length = (secs) => {
     const s = Math.max(0, Math.floor(secs || 0));
@@ -396,15 +432,17 @@ function videoControls(frame, video) {
   video.addEventListener("loadedmetadata", () => { seek.max = String(video.duration || 0); show(); });
   video.addEventListener("timeupdate", show);
   for (const name of ["play", "pause", "volumechange", "emptied"]) video.addEventListener(name, showState);
+  video.addEventListener("ratechange", () => { speed.value = String(video.playbackRate); });
+  setSpeed(video, savedSpeed());
+  speed.value = String(video.playbackRate);      // no "ratechange" is sent when it was already this
   seek.addEventListener("input", () => { dragging = true; show(); });
   seek.addEventListener("change", () => { video.currentTime = Number(seek.value); dragging = false; });
   volume.addEventListener("input", () => { video.volume = Number(volume.value); video.muted = Number(volume.value) === 0; });
   video.addEventListener("click", () => (video.paused ? video.play() : video.pause()));
 
-  // With the player focused: space plays or pauses, the arrow keys step 5 seconds.
+  // With the player focused, the arrow keys step 5 seconds (elsewhere on the page they change game).
   frame.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
-    if (e.key === " ") { e.preventDefault(); if (video.paused) video.play(); else video.pause(); }
     if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); video.currentTime = Math.max(0, video.currentTime - 5); }
     if (e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); video.currentTime = Math.min(video.duration || 0, video.currentTime + 5); }
   });
@@ -412,6 +450,107 @@ function videoControls(frame, video) {
   showState();
   return bar;
 }
+
+// ---- watching: speed, frame-step, full screen and the keyboard ----
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+const FRAME = 1 / 30;       // saved games are 30 frames a second
+
+function savedSpeed() {
+  try {
+    const rate = Number(localStorage.getItem("speed"));
+    return SPEEDS.includes(rate) ? rate : 1;
+  } catch (e) { return 1; }
+}
+
+// The speed is yours, not the game's: it is kept for every video from now on.
+function setSpeed(video, rate) {
+  video.defaultPlaybackRate = rate;      // so it survives switching to another video
+  video.playbackRate = rate;
+  try { localStorage.setItem("speed", String(rate)); } catch (e) { /* not kept */ }
+}
+
+function stepSpeed(video, dir) {
+  const at = SPEEDS.indexOf(video.playbackRate);
+  setSpeed(video, SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (at < 0 ? SPEEDS.indexOf(1) : at) + dir))]);
+}
+
+function seekBy(video, secs) {
+  video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + secs));
+}
+
+function stepFrame(video, dir) {
+  video.pause();
+  seekBy(video, dir * FRAME);
+}
+
+// A word over the picture for a moment, for changes made from the keyboard.
+function flash(frame, text) {
+  frame.querySelectorAll(".player-flash").forEach((n) => n.remove());
+  const tip = node("div", "player-flash", text);
+  frame.append(tip);
+  setTimeout(() => tip.remove(), 1000);
+}
+
+// Full screen is two things: the video fills the app's window, and the window
+// fills the screen. The second is asked of the app and may not be possible.
+let windowFull = false;
+function setWindowFull(on) {
+  if (windowFull === on) return;
+  windowFull = on;
+  try { api().toggle_fullscreen(); } catch (e) { /* the video still fills the window */ }
+}
+function toggleFull(frame) {
+  const on = !frame.classList.contains("is-full");
+  document.querySelectorAll(".player-frame.is-full").forEach((f) => f.classList.remove("is-full"));
+  frame.classList.toggle("is-full", on);
+  setWindowFull(on);
+}
+function leaveFull() {
+  document.querySelectorAll(".player-frame.is-full").forEach((f) => f.classList.remove("is-full"));
+  setWindowFull(false);
+}
+
+// The game whose page is showing and has something to play, else null.
+function activePlayer() {
+  if (layout !== "single" || el("games-view").hidden) return null;
+  const card = document.querySelector("#games .game");
+  if (!card || !card._player) return null;
+  return { card, id: card.id.slice(2), player: card._player, video: card._player.video,
+    frame: card.querySelector(".player-frame") };
+}
+
+const playPause = ({ video }) => (video.paused ? video.play().catch(() => {}) : video.pause());
+// What each key does on a game's page. Later sections add theirs.
+const PLAYER_KEYS = {
+  " ": playPause,
+  k: playPause,
+  j: ({ video }) => seekBy(video, -10),
+  l: ({ video }) => seekBy(video, 10),
+  ",": ({ video }) => stepFrame(video, -1),
+  ".": ({ video }) => stepFrame(video, 1),
+  "<": ({ video, frame }) => { stepSpeed(video, -1); flash(frame, video.playbackRate + "×"); },
+  ">": ({ video, frame }) => { stepSpeed(video, 1); flash(frame, video.playbackRate + "×"); },
+  m: ({ video, frame }) => { video.muted = !video.muted; flash(frame, video.muted ? "Muted" : "Sound on"); },
+  f: ({ frame }) => toggleFull(frame),
+  "?": () => el("shortcuts").showModal(),
+};
+
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
+  const tag = e.target.tagName;
+  // Typing is typing: a note with a "k" in it must not pause the video.
+  if (tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && e.target.type !== "range")) return;
+  const active = activePlayer();
+  if (!active) return;
+  if (e.key === "Escape") { if (windowFull) { e.preventDefault(); leaveFull(); } return; }
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (key === " " && tag === "BUTTON") return;      // space presses the focused button, as everywhere
+  const action = PLAYER_KEYS[key];
+  if (!action) return;
+  e.preventDefault();
+  action(active);
+});
+el("shortcutsClose").onclick = () => el("shortcuts").close();
 
 // ---- match timeline: when the shots and box entries happened; click to jump there ----
 const MOMENT_WORDS = { "shot": "Shot", "opp-shot": "Opponent shot", "box-entry": "Box entry",
