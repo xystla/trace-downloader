@@ -31,6 +31,7 @@ async function refresh() {
   el("auto").checked = s.auto;
   el("login").checked = s.login;
   el("loginRow").hidden = !s.auto;
+  showAutoOptions(s.auto, s.auto_options);
   showAutoStatus(s.auto, "");
   if (s.welcome) showWelcome();
   if (s.settings) el("quality").value = s.settings.quality;
@@ -1894,6 +1895,7 @@ el("auto").onchange = async (e) => {
   const on = await api().set_auto(e.target.checked);
   el("auto").checked = on;
   el("loginRow").hidden = !on;
+  el("autoOptions").hidden = !on;
   el("login").checked = (await api().auto_settings()).login;      // on with automatic downloads, off with them
   showAutoStatus(on, "");
 };
@@ -1907,6 +1909,31 @@ function showAutoStatus(on, text) {
   el("autoStatus").hidden = !on;
   el("autoStatus").textContent = text || "Automatic downloads on";
 }
+
+// The choices under the automatic switch: how often to look, and what to fetch.
+function showAutoOptions(on, options) {
+  el("autoOptions").hidden = !on;
+  if (!options) return;
+  const pick = el("interval");
+  const hours = String(options.interval);
+  // A value set by hand in the config file still shows as what it is.
+  if (![...pick.options].some((o) => o.value === hours)) pick.add(new Option(`Every ${hours} hours`, hours));
+  pick.value = hours;
+  el("autoFull").checked = options.full;
+  el("autoHighlights").checked = options.highlights;
+  el("autoRecaps").checked = options.recaps;
+}
+
+el("interval").onchange = (e) => api().save_settings({ interval: Number(e.target.value) });
+["autoFull", "autoHighlights", "autoRecaps"].forEach((id) => {
+  el(id).onchange = async () => {
+    const res = await api().set_auto_choices({
+      full: el("autoFull").checked, highlights: el("autoHighlights").checked, recaps: el("autoRecaps").checked });
+    showAutoOptions(true, { ...res, interval: el("interval").value });      // a refused change snaps back
+    el("autoNote").hidden = res.ok;
+    el("autoNote").textContent = res.ok ? "" : res.error;
+  };
+});
 
 // ---- first open: appearance and automatic downloads ----
 function setTheme(choice) {
@@ -1936,6 +1963,7 @@ function showWelcome() {
     el("auto").checked = auto;
     el("login").checked = auto && el("welcomeLogin").checked;
     el("loginRow").hidden = !auto;
+    el("autoOptions").hidden = !auto;
     showAutoStatus(auto, "");
   };
   dialog.showModal();

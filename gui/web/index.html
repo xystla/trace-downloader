@@ -218,7 +218,25 @@
           </select>
         </label>
         <label class="switch"><span>Combine both halves into one file</span><input type="checkbox" id="combine"></label>
-        <label class="switch"><span>Download new games automatically every 3 hours<small>The full game, highlights and player recaps, for games added from now on. TraceDown keeps running in the background to do this.</small></span><input type="checkbox" id="auto"></label>
+        <label class="switch"><span>Download new games automatically<small>For games added from now on. TraceDown keeps running in the background to do this.</small></span><input type="checkbox" id="auto"></label>
+        <div id="autoOptions" class="auto-options" hidden>
+          <label class="inline"><span>Check for new games</span>
+            <select id="interval" aria-label="How often to check for new games">
+              <option value="1">Every hour</option>
+              <option value="3">Every 3 hours</option>
+              <option value="6">Every 6 hours</option>
+              <option value="12">Every 12 hours</option>
+              <option value="24">Once a day</option>
+            </select>
+          </label>
+          <div class="auto-what" role="group" aria-label="What to download for each new game">
+            <span>For each new game, download</span>
+            <label><input type="checkbox" id="autoFull"> Full game</label>
+            <label><input type="checkbox" id="autoHighlights"> Highlights</label>
+            <label><input type="checkbox" id="autoRecaps"> Player recaps</label>
+          </div>
+          <div id="autoNote" class="caption" hidden></div>
+        </div>
         <label class="switch" id="loginRow"><span>Open TraceDown when I log in to this computer</span><input type="checkbox" id="login"></label>
         <button id="removeAccount" class="danger">Log out / remove this account</button>
       </div>
@@ -269,7 +287,7 @@
         <button data-theme-choice="dark">Dark</button>
       </div>
     </div>
-    <label class="switch"><span>Download new games automatically every 3 hours<small>Each new game with its highlights and player recaps, roughly 4 to 5 GB a game. Only games added from now on; older ones are yours to pick.</small></span><input type="checkbox" id="welcomeAuto"></label>
+    <label class="switch"><span>Download new games automatically<small>Each new game with its highlights and player recaps, roughly 4 to 5 GB a game, checked every 3 hours. Only games added from now on; older ones are yours to pick. What it downloads and how often can be changed in Settings.</small></span><input type="checkbox" id="welcomeAuto"></label>
     <label class="switch" id="welcomeLoginRow" hidden><span>Open TraceDown when I log in to this computer<small>It keeps running in the background, in the menu bar or system tray, so it can check for new games. Quit it there or in Settings.</small></span><input type="checkbox" id="welcomeLogin" checked></label>
     <p class="caption">You can change all of this later in Settings.</p>
     <menu><button id="welcomeDone" class="primary">Get started</button></menu>
