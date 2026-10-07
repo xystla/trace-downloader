@@ -23,7 +23,7 @@ def test_gui_download_keeps_windows_awake_only_while_downloading(monkeypatch, tm
     instance = worker.Worker.__new__(worker.Worker)
     instance._accounts = SimpleNamespace(active=_account(tmp_path))
     instance._ctx = object()
-    instance._cfg = SimpleNamespace(output_dir=tmp_path, combine_halves=False)
+    instance._cfg = SimpleNamespace(output_dir=tmp_path, combine_halves=False, quality="highest")
     instance._cancel = threading.Event()
     monkeypatch.setattr(worker, "cookie_headers", lambda ctx: {})
     during = []

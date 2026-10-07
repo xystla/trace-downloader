@@ -1,3 +1,4 @@
+import json
 import threading
 from types import SimpleNamespace
 
@@ -34,8 +35,10 @@ def game(monkeypatch, tmp_path):
     monkeypatch.setattr(worker.segments, "parse", lambda text, url: [(1000 / 3, f"https://t/{i}.ts") for i in range(3)])
     monkeypatch.setattr(worker.space, "free", lambda folder: 500 * GB)
     w.fetched = []
-    def fetch(parts, dest, headers, quality, on_progress=None, should_stop=None, on_proc=None):
+    w.owners = []
+    def fetch(parts, dest, headers, quality, on_progress=None, should_stop=None, on_proc=None, owner=""):
         w.fetched.append(dest.name)
+        w.owners.append(owner)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"video")
     w.fetch = fetch
@@ -47,14 +50,22 @@ def game(monkeypatch, tmp_path):
     return w
 
 
+def _finished_earlier(game, name, owner="demo-7", quality="highest", content=b"done earlier"):
+    """A half an earlier attempt finished, with the record the fetcher leaves beside it."""
+    game.full.mkdir(parents=True, exist_ok=True)
+    half = game.full / name
+    half.write_bytes(content)
+    (game.full / f".{half.stem}.done").write_text(json.dumps({"owner": owner, "quality": quality}))
+    return half
+
+
 def test_both_halves_are_fetched_under_fixed_names(game):
     assert game.run() == 2
     assert game.fetched == ["2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4"]
 
 
 def test_a_half_that_was_already_finished_is_not_downloaded_again(game):
-    game.full.mkdir(parents=True)
-    (game.full / "2026-09-22_vs-rivals_half1.mp4").write_bytes(b"done earlier")
+    _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4")
     assert game.run() == 2
     assert game.fetched == ["2026-09-22_vs-rivals_half2.mp4"]
     assert sorted(p.name for p in game.full.glob("*.mp4")) == [
@@ -112,22 +123,88 @@ def test_a_cut_off_game_reports_how_far_it_got(game, monkeypatch):
     listed = [SimpleNamespace(id="demo-7", date="2026-09-22", opponent="Rivals"),
               SimpleNamespace(id="demo-8", date="2026-09-29", opponent="United"),
               SimpleNamespace(id="demo-9", date="2026-10-01", opponent="Athletic")]
-    game.full.mkdir(parents=True)
-    (game.full / "2026-09-22_vs-rivals_half1.mp4").write_bytes(b"done")
-    shares = {"2026-09-22_vs-rivals_half2.mp4": 0.5}
-    monkeypatch.setattr(game.module.pieces, "progress_of", lambda dest: shares.get(dest.name))
+    _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4")
+    shares = {("2026-09-22_vs-rivals_half2.mp4", "demo-7", "highest"): 0.5}
+    monkeypatch.setattr(game.module.pieces, "progress_of",
+                        lambda dest, owner=None, quality=None: shares.get((dest.name, owner, quality)))
     assert game._partials(listed, done={"demo-9"}) == {"demo-7": 0.75}
 
 
-def test_discarding_removes_the_pieces_and_any_finished_half(game, monkeypatch):
-    game.full.mkdir(parents=True)
-    half1 = game.full / "2026-09-22_vs-rivals_half1.mp4"
-    half1.write_bytes(b"done")
-    thrown = []
-    monkeypatch.setattr(game.module.pieces, "discard", lambda dest: thrown.append(dest.name))
+def test_discarding_removes_the_pieces_and_any_finished_half(game):
+    half1 = _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4")
+    pieces_folder = game.full / ".2026-09-22_vs-rivals_half2.pieces"
+    pieces_folder.mkdir()
+    (pieces_folder / "info.json").write_text(json.dumps({"owner": "demo-7", "quality": "highest", "count": 3}))
+    (pieces_folder / "00000.ts").write_bytes(b"piece")
     assert game._discard_partial("demo-7", "2026-09-22", "Rivals") is True
-    assert not half1.exists()
-    assert thrown == ["2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4"]
+    assert list(game.full.iterdir()) == []
+
+
+def test_fetching_says_whose_download_it_is(game):
+    game.run()
+    assert game.owners == ["demo-7", "demo-7"]
+
+
+def test_another_games_half_with_the_same_name_is_neither_taken_nor_overwritten(game):
+    # Two games on one day against the same opponent share a folder and a file name.
+    theirs = _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4", owner="demo-6", content=b"the other game")
+    assert game.run() == 2
+    assert game.fetched == ["2026-09-22_vs-rivals_half1-2.mp4", "2026-09-22_vs-rivals_half2.mp4"]
+    assert theirs.read_bytes() == b"the other game"
+
+
+def test_a_video_saved_before_is_not_mistaken_for_a_finished_half(game):
+    game.full.mkdir(parents=True)
+    saved = game.full / "2026-09-22_vs-rivals_half1.mp4"
+    saved.write_bytes(b"saved by an older version")
+    assert game._partials([SimpleNamespace(id="demo-7", date="2026-09-22", opponent="Rivals")], done=set()) == {}
+    game.run()
+    assert game.fetched[0] == "2026-09-22_vs-rivals_half1-2.mp4" and saved.read_bytes() == b"saved by an older version"
+
+
+def test_a_half_finished_at_another_quality_is_downloaded_again(game):
+    _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4", quality="1000k")
+    game.run()
+    assert game.fetched == ["2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4"]
+
+
+def test_once_a_game_is_saved_its_halves_are_ordinary_videos(game):
+    _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4")
+    game.run()
+    assert sorted(p.name for p in game.full.iterdir()) == [
+        "2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4"]      # no records left
+    assert game._partials([SimpleNamespace(id="demo-7", date="2026-09-22", opponent="Rivals")], done=set()) == {}
+
+
+def test_discard_never_deletes_a_saved_game(game):
+    game.run()                                                   # saved as two halves
+    assert game._discard_partial("demo-7", "2026-09-22", "Rivals") is False
+    assert len(list(game.full.glob("*.mp4"))) == 2
+
+
+def test_discard_leaves_another_games_files_alone(game):
+    theirs = _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4", owner="demo-6")
+    mine = _finished_earlier(game, "2026-09-22_vs-rivals_half1-2.mp4")
+    assert game._discard_partial("demo-7", "2026-09-22", "Rivals") is True
+    assert theirs.exists() and not mine.exists()
+
+
+def test_a_game_cannot_be_discarded_while_it_is_downloading(game):
+    half1 = _finished_earlier(game, "2026-09-22_vs-rivals_half1.mp4")
+    seen = []
+    def fetch(parts, dest, headers, quality, **kwargs):
+        seen.append(game.discard_partial("demo-7", "2026-09-22", "Rivals"))
+        dest.write_bytes(b"video")
+    game.fetch = fetch
+    game.run()
+    assert seen == [False] and half1.exists()
+
+
+def test_free_space_and_discard_do_not_wait_behind_a_running_download(game):
+    # The test worker has no job queue at all: these must answer on the caller's own thread.
+    assert not hasattr(game, "_jobs")
+    assert game.disk_free() == 500 * GB
+    assert game.discard_partial("demo-7", "2026-09-22", "Rivals") is True
 
 
 def test_free_space_is_that_of_the_download_folder(game):
