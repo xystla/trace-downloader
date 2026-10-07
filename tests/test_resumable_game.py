@@ -209,3 +209,32 @@ def test_free_space_and_discard_do_not_wait_behind_a_running_download(game):
 
 def test_free_space_is_that_of_the_download_folder(game):
     assert game._disk_free() == 500 * GB
+
+
+def test_downloading_a_missing_game_again_un_saves_it_until_it_is_whole(game):
+    # Saved once, video since gone; "Download again" is cut off after the first half.
+    state = game.full.parent.parent / "state.json"
+    state.write_text(json.dumps(["demo-7", "demo-9"]))
+    def fetch(parts, dest, headers, quality, **kwargs):
+        if "half2" in dest.name:
+            raise RuntimeError("The connection dropped.")
+        _finished_earlier(game, dest.name)
+    game.fetch = fetch
+    with pytest.raises(RuntimeError):
+        game.run()
+    assert json.loads(state.read_text()) == ["demo-9"]                # not "saved" on the strength of half a game
+    listed = [SimpleNamespace(id="demo-7", date="2026-09-22", opponent="Rivals")]
+    assert game._partials(listed, done=set(json.loads(state.read_text()))) == {"demo-7": 0.5}
+
+
+def test_downloading_does_not_un_save_a_game_whose_video_is_there(game):
+    state = game.full.parent.parent / "state.json"
+    state.write_text(json.dumps(["demo-7"]))
+    game.full.mkdir(parents=True)
+    (game.full / "2026-09-22_vs-rivals.mp4").write_bytes(b"the whole game")
+    def stopped(parts, dest, headers, quality, **kwargs):
+        game._cancel.set()
+        raise game.module.pieces.Stopped("stopped")
+    game.fetch = stopped
+    game.run()
+    assert json.loads(state.read_text()) == ["demo-7"]

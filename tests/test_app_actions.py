@@ -937,10 +937,14 @@ def test_cancelling_the_picker_changes_nothing(api):
 def test_storage_reaches_the_page_with_the_name_of_the_bin(api, monkeypatch):
     from gui import app
     monkeypatch.setattr(app.platform_tasks, "bin_name", lambda: "Trash")
+    monkeypatch.setattr(app.platform_tasks, "can_trash", lambda: True)
     asked = []
     report = {"rows": [{"id": "t-1", "title": "vs Rovers", "total": 1100}], "used": 1525, "other": 25, "free": 50}
     api._worker.storage = lambda games: asked.append([g.id for g in games]) or report
-    assert api.storage() == {"ok": True, **report, "bin": "Trash"}
+    assert api.storage() == {"ok": True, **report, "bin": "Trash", "can_remove": True}
+    monkeypatch.setattr(app.platform_tasks, "can_trash", lambda: False)
+    assert api.storage()["can_remove"] is False
+    asked.pop()
     assert asked == [["t-1", "t-2"]]
     def unreadable(games):
         raise OSError("the drive is not connected")
@@ -952,14 +956,20 @@ def test_removing_a_game_says_how_much_went_to_the_bin(api, monkeypatch):
     from gui import app
     monkeypatch.setattr(app.platform_tasks, "bin_name", lambda: "Recycle Bin")
     asked = []
-    api._worker.remove_game = lambda *args: asked.append(args) or 4_200_000_000
+    listed = []
+    def remove_game(*args, games=()):
+        asked.append(args)
+        listed.append([g.id for g in games])
+        return 4_200_000_000
+    api._worker.remove_game = remove_game
     assert api.remove_game("t-1") == {"ok": True, "freed": 4_200_000_000, "bin": "Recycle Bin"}
     assert api.remove_game("t-1", True)["ok"] is True
     assert asked == [("t-1", "2026-06-04", "Rovers", False), ("t-1", "2026-06-04", "Rovers", True)]
+    assert listed == [["t-1", "t-2"], ["t-1", "t-2"]]          # the worker is told what else is listed, to spot a shared folder
 
 
 def test_a_removal_that_fails_says_why(api):
-    def refuse(*args):
+    def refuse(*args, **kwargs):
         raise RuntimeError("This game is downloading. Stop the download first.")
     api._worker.remove_game = refuse
     assert api.remove_game("t-1") == {"ok": False, "error": "This game is downloading. Stop the download first."}

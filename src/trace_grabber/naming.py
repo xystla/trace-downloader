@@ -37,15 +37,19 @@ def custom_stem(pattern: str | None, date: str, opponent: str | None, team: str 
     """The file name (without '.mp4') a pattern such as '{team} vs {opponent} {date}'
     gives a game's video, or None when there is no pattern or it leaves nothing,
     which means the built-in name. Characters no file name may hold become '-',
-    so a pattern can't reach outside the game's folder, and '_half' is kept for
-    the app's own use: that is how a half is told from a whole game."""
+    so a pattern can't reach outside the game's folder, and '_half' and a
+    closing '.part' are kept for the app's own use: that is how a half is told
+    from a whole game, and an unfinished video from a finished one."""
     pattern = (pattern or "").strip()
     if not pattern:
         return None
     values = {"date": date or "", "team": team or "", "opponent": opponent or "Unknown opponent"}
     text = re.sub(r"\{(date|team|opponent)\}", lambda m: values[m.group(1)], pattern)
-    text = re.sub(r"\s+", " ", _NOT_IN_NAMES.sub("-", text)).replace("_half", "-half")
-    return text.strip(" .-")[:STEM_MAX].strip(" .-") or None
+    text = re.sub(r"\s+", " ", _NOT_IN_NAMES.sub("-", text))
+    text = re.sub(r"_(half)", r"-\1", text, flags=re.IGNORECASE)
+    text = text.strip(" .-")[:STEM_MAX].strip(" .-")
+    # '<name>.part.mp4' is how the app marks a video that isn't finished yet.
+    return re.sub(r"\.(part)$", r"-\1", text, flags=re.IGNORECASE) or None
 
 def _game_stem(date: str, opponent: str | None) -> str:
     parts = [date]

@@ -189,13 +189,18 @@ def notify(message: str) -> None:
 
 
 # ---- the Trash: removing a game is never a deletion ----
-_WIN_RECYCLE = (
-    "Add-Type -AssemblyName Microsoft.VisualBasic; "
-    "$p = $env:TRACEDOWN_PATH; "
-    "if (Test-Path -LiteralPath $p -PathType Container) "
-    "{ [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } "
-    "else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }"
-)
+# Windows' own "send to the Recycle Bin" call deletes for good, without asking,
+# when a drive has no bin (a network share, a memory card) or the folder is too
+# big for it. Until removal has been tried on Windows and shown never to do
+# that, it is not offered there: a video that can't be downloaded again is not
+# worth the risk.
+WINDOWS_NOT_YET = ("Removing games from inside TraceDown isn't available on Windows yet. "
+                   "Open the game's folder and delete it there.")
+
+
+def can_trash() -> bool:
+    """Can removed files be put somewhere they can be brought back from?"""
+    return sys.platform != "win32"
 
 
 def bin_name() -> str:
@@ -211,11 +216,7 @@ def _trash_one(path: Path) -> None:
         if not ok:
             raise RuntimeError(str(error or "the Trash refused it"))
     elif sys.platform == "win32":
-        done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _WIN_RECYCLE],
-                              capture_output=True, text=True, check=False,
-                              env={**os.environ, "TRACEDOWN_PATH": str(path)}, **tools.subprocess_flags())
-        if done.returncode != 0:
-            raise RuntimeError((done.stderr or "").strip()[-200:] or "the Recycle Bin refused it")
+        raise RuntimeError(WINDOWS_NOT_YET)
     else:
         done = subprocess.run(["gio", "trash", str(path)], capture_output=True, text=True, check=False)
         if done.returncode != 0:
@@ -229,6 +230,8 @@ def trash(paths) -> None:
     for path in (Path(p) for p in paths):
         if not path.exists():
             continue
+        if not can_trash():
+            raise RuntimeError(WINDOWS_NOT_YET)
         try:
             _trash_one(path)
         except Exception as error:

@@ -1754,8 +1754,10 @@ async function loadStorage() {
     return;
   }
   el("storageSummary").textContent =
-    `TraceDown's games take ${sizeText(data.used) || "no space"} here. ${sizeText(data.free) || "Nothing"} is free on this disk.`;
-  body.replaceChildren(...data.rows.map((row) => storageRow(row, data.bin)));
+    `TraceDown's games take ${sizeText(data.used) || "no space"} here. ${sizeText(data.free) || "Nothing"} is free on this disk.`
+    // Where a removed file couldn't be brought back, removal isn't offered at all.
+    + (data.can_remove === false ? " Removing games from inside TraceDown isn't available on Windows yet: open a game's folder and delete it there." : "");
+  body.replaceChildren(...data.rows.map((row) => storageRow(row, data.bin, data.can_remove !== false)));
   foot.replaceChildren();
   const other = data.other > 5e6;          // a few stray megabytes aren't worth a line
   if (other) {
@@ -1769,7 +1771,7 @@ async function loadStorage() {
   el("storageEmpty").hidden = data.rows.length > 0 || other;
 }
 
-function storageRow(row, bin) {
+function storageRow(row, bin, canRemove) {
   const tr = document.createElement("tr");
   const name = node("td", "st-game");
   name.append(node("b", null, row.title), node("span", "caption", row.date || ""));
@@ -1782,15 +1784,24 @@ function storageRow(row, bin) {
     actions.append(labelButton("x", "Discard", "Delete what was downloaded of this game so far.",
       async () => { await discardDownload(row.id); loadStorage(); }));
   }
-  if (row.full || row.elsewhere) {
-    actions.append(labelButton("x", "Remove full game", row.elsewhere && !row.full
+  const removers = [];
+  if (canRemove && (row.full || row.elsewhere)) {
+    removers.push(labelButton("x", "Remove full game", row.elsewhere && !row.full
       ? "Forget where this game's video is. The video itself is left where it is."
       : `Move the video to the ${bin}. Highlights, recaps, clips and bookmarks are kept.`,
     () => askRemove(row, false, bin)));
   }
-  actions.append(
-    labelButton("x", "Remove everything", `Move everything saved for this game to the ${bin}.`, () => askRemove(row, true, bin)),
-    iconButton("games", "Go to this game", () => { showView("games"); openSingle(row.id); }));
+  if (canRemove) {
+    removers.push(labelButton("x", "Remove everything", `Move everything saved for this game to the ${bin}.`,
+      () => askRemove(row, true, bin)));
+  }
+  // Two games on one day against the same opponent share a folder; their files can't be told apart.
+  for (const b of removers) {
+    if (!row.shared) continue;
+    b.disabled = true;
+    b.title = "This game shares its folder with another game on the same day, so it can't be removed from here. Open the folder and remove what you don't want.";
+  }
+  actions.append(...removers, iconButton("games", "Go to this game", () => { showView("games"); openSingle(row.id); }));
   tr.append(name, node("td", null, full), node("td", null, sizeText(row.highlights)), node("td", null, sizeText(row.recaps)),
     node("td", null, sizeText(row.mine)), node("td", "st-total", sizeText(row.total)), last);
   return tr;

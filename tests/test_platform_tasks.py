@@ -174,21 +174,17 @@ def test_a_trash_that_refuses_is_an_error_naming_the_file(monkeypatch, tmp_path)
         pt.trash([video])
 
 
-def test_removing_goes_to_the_windows_recycle_bin(monkeypatch, tmp_path):
+def test_removal_is_not_offered_on_windows_until_it_is_proven_safe_there(monkeypatch, tmp_path):
+    # Windows' own "send to the Recycle Bin" call deletes for good, without asking, when a
+    # drive has no bin (a network share, a memory card) or the folder is too big for it.
     from trace_grabber import platform_tasks as pt
     monkeypatch.setattr(pt.sys, "platform", "win32")
-    monkeypatch.setattr(pt.tools, "subprocess_flags", lambda: {})
-    runs = []
-    def run(cmd, **kwargs):
-        runs.append((cmd, kwargs["env"]["TRACEDOWN_PATH"]))
-        return SimpleNamespace(returncode=0, stderr="")
-    monkeypatch.setattr(pt.subprocess, "run", run)
+    monkeypatch.setattr(pt.subprocess, "run", lambda *a, **k: pytest.fail("nothing may be run"))
     folder = tmp_path / "2026-06-04_vs-rovers"
     folder.mkdir()
-    pt.trash([folder])
-    (cmd, path), = runs
-    assert cmd[0] == "powershell" and "SendToRecycleBin" in cmd[-1] and path == str(folder)
-    assert pt.bin_name() == "Recycle Bin"
-    monkeypatch.setattr(pt.subprocess, "run", lambda cmd, **kwargs: SimpleNamespace(returncode=1, stderr="denied"))
-    with pytest.raises(RuntimeError, match="Recycle Bin"):
+    assert pt.can_trash() is False
+    with pytest.raises(RuntimeError, match="isn't available on Windows yet"):
         pt.trash([folder])
+    assert folder.exists()
+    monkeypatch.setattr(pt.sys, "platform", "darwin")
+    assert pt.can_trash() is True

@@ -233,6 +233,18 @@ def belongs(dest, owner: str) -> bool:
     return owner in (_read(folder_for(dest) / INFO).get("owner"), _read(_record(dest)).get("owner"))
 
 
+def owned_in(folder, owner: str) -> list[Path]:
+    """The videos in `folder` that a download for `owner` has pieces or a finished
+    half for, whatever they are called: a download carries on under the name it
+    began with, even if the naming was changed since."""
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    names = {p.name[1:-len(".pieces")] for p in folder.glob(".*.pieces")}
+    names |= {p.name[1:-len(".done")] for p in folder.glob(".*.done")}
+    return sorted(dest for dest in (folder / f"{name}.mp4" for name in names) if belongs(dest, owner))
+
+
 def forget(dest) -> None:
     """The game is saved: its halves are ordinary videos now, with nothing to resume."""
     _record(dest).unlink(missing_ok=True)

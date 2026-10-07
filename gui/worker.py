@@ -253,24 +253,41 @@ class Worker:
             use = library.usage(self._folders(g.id, g.date, g.opponent), videos, root)
             if use["total"] or use["elsewhere"]:
                 rows.append({"id": g.id, "title": f"vs {g.opponent or g.title}", "date": g.date,
-                             "saved": g.id in done, **use})
+                             "saved": g.id in done, "shared": bool(self._sharing(g.id, g.date, g.opponent, games)),
+                             **use})
         rows.sort(key=lambda row: row["total"], reverse=True)
         used = library.size_of(root)
         return {"rows": rows, "used": used, "other": max(0, used - sum(row["total"] for row in rows)),
                 "free": space.free(root)}
 
-    def remove_game(self, game_id, date, opponent, everything):
+    def _sharing(self, game_id, date, opponent, games):
+        """Other listed games kept in this game's folder: two games on one day
+        against the same opponent (or with no opponent named) share it, and
+        their files can't be told apart."""
+        here = self._folders(game_id, date, opponent).root
+        return [g for g in games if g.id != game_id and self._folders(g.id, g.date, g.opponent).root == here]
+
+    def remove_game(self, game_id, date, opponent, everything, games=()):
         """Move a game's full video (or, with `everything`, all of the game) to
         the Trash and take it off the saved list; returns the bytes moved. A video
         the person found outside the library is left where it is and only
-        forgotten. Raises RuntimeError with a message for the person; if the Trash
-        refuses, nothing is forgotten."""
+        forgotten. `games` are the games listed, so one that shares its folder
+        with another is refused. Raises RuntimeError with a message for the
+        person; if the Trash refuses, nothing is forgotten."""
         if getattr(self, "_downloading", None) == game_id:
             raise RuntimeError("This game is downloading. Stop the download first.")
+        others = self._sharing(game_id, date, opponent, games)
+        if others:
+            names = " and ".join(sorted({f"vs {g.opponent or g.title}" for g in others}))
+            raise RuntimeError(f"This game shares its folder with {names} (same day, same name), so TraceDown "
+                               "can't tell their files apart. Open the folder and remove what you don't want there.")
         acct = self._active()
         root = acct.output_dir(self._cfg.output_dir)
         videos = [Path(f) for f in self._game_files(date or game_id, opponent or None, game_id)]
-        paths = library.targets(self._folders(game_id, date, opponent), videos, root, everything)
+        try:
+            paths = library.targets(self._folders(game_id, date, opponent), videos, root, everything)
+        except ValueError:
+            raise RuntimeError("TraceDown couldn't tell which folder is this game's, so nothing was removed.")
         moved = sum(library.size_of(p) for p in paths)
         platform_tasks.trash(paths)
         unmark(acct.state_path(DATA), game_id)
@@ -364,6 +381,10 @@ class Worker:
         masters = self._resolve_masters(team_id, game_id)
         LOG.info("download %s halves=%s acct=%s", game_id, len(masters), acct.id)
         out_base = self._folders(game_id, date, opponent).full_game
+        if not self._game_files(date or game_id, opponent or None, game_id):
+            # Downloading a game again because its video went missing: it is not
+            # "saved" on the strength of the old record while the new one is partway.
+            unmark(acct.state_path(DATA), game_id)
         chosen = self._cfg.quality
         stem = self._stem(date or game_id, opponent or None)
         halves = []                 # (number, where it goes, its pieces, estimated bytes)
@@ -455,12 +476,15 @@ class Worker:
         video there; a name already taken by something that isn't this game's own
         download is skipped ('…_half1-2.mp4'), never reused or overwritten.
         `stem` is the person's own file name for the video, if they set one."""
-        default = half_path(out_base, date or game_id, number, opponent or None)
+        # A download that has already begun carries on under the name it began
+        # with, for both halves, whatever the file-name setting says now.
+        begun = pieces.owned_in(out_base, game_id)
+        for dest in begun:
+            if re.search(rf"_half{number}(-\d+)?$", dest.stem):
+                return dest
+        if begun:
+            stem = re.sub(r"_half\d(-\d+)?$", "", begun[0].stem)
         first = half_path(out_base, date or game_id, number, opponent or None, stem)
-        # A download begun under another name (the file-name setting was changed
-        # since) carries on where it started.
-        if first != default and pieces.belongs(default, game_id):
-            return default
         candidate, n = first, 1
         while not (pieces.belongs(candidate, game_id)
                    or not (candidate.exists() or pieces.folder_for(candidate).exists())):

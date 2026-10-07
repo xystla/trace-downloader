@@ -171,5 +171,63 @@ def test_a_download_begun_under_the_old_name_carries_on_there(lib):
     (old.parent / ".2026-09-22_vs-rivals_half1.done").write_text(json.dumps({"owner": "demo-7", "quality": "highest"}))
     lib._cfg.file_name = "{team} vs {opponent}"                       # changed while half 2 was still to come
     dests = lib._half_dests("demo-7", "2026-09-22", "Rivals")
-    assert [d.name for d in dests] == ["2026-09-22_vs-rivals_half1.mp4", "Tiger Sharks vs Rivals_half2.mp4"]
+    assert [d.name for d in dests] == ["2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4"]      # one name for the pair
     assert lib._partials([lib.game], done=set()) == {"demo-7": 0.5}
+
+
+def _begun_as(lib, stem, with_pieces_for_half_2=False):
+    """Half 1 finished under `stem`; optionally half 2 partway, as pieces."""
+    full = lib.root / "2026-09-22_vs-rivals" / "Full Game"
+    _put(full / f"{stem}_half1.mp4")
+    (full / f".{stem}_half1.done").write_text(json.dumps({"owner": "demo-7", "quality": "highest"}))
+    if with_pieces_for_half_2:
+        folder = full / f".{stem}_half2.pieces"
+        _put(folder / "00000.ts")
+        (folder / "info.json").write_text(json.dumps({"owner": "demo-7", "quality": "highest", "count": 2}))
+
+
+def test_changing_from_one_pattern_to_another_mid_download_keeps_the_resume(lib):
+    lib._cfg.file_name = "{team} vs {opponent}"
+    _begun_as(lib, "Tiger Sharks vs Rivals", with_pieces_for_half_2=True)
+    lib._cfg.file_name = "{opponent} {date}"
+    assert [d.name for d in lib._half_dests("demo-7", "2026-09-22", "Rivals")] == [
+        "Tiger Sharks vs Rivals_half1.mp4", "Tiger Sharks vs Rivals_half2.mp4"]
+    assert lib._partials([lib.game], done=set()) == {"demo-7": 0.75}
+
+
+def test_clearing_the_pattern_mid_download_keeps_the_resume(lib):
+    lib._cfg.file_name = "{team} vs {opponent}"
+    _begun_as(lib, "Tiger Sharks vs Rivals")
+    lib._cfg.file_name = ""
+    assert [d.name for d in lib._half_dests("demo-7", "2026-09-22", "Rivals")] == [
+        "Tiger Sharks vs Rivals_half1.mp4", "Tiger Sharks vs Rivals_half2.mp4"]
+    assert lib._partials([lib.game], done=set()) == {"demo-7": 0.5}
+
+
+def test_a_game_that_shares_its_folder_with_another_cannot_be_removed_from_the_app(lib):
+    # Two games on one day against the same opponent live in one folder: removing
+    # "one" would take the other's video too.
+    _saved(lib, "demo-7", "demo-6")
+    _full(lib)
+    twin = SimpleNamespace(id="demo-6", date="2026-09-22", opponent="Rivals", title="T vs. Rivals")
+    for everything in (False, True):
+        with pytest.raises(RuntimeError, match="shares its folder with vs Rivals"):
+            lib.remove_game("demo-7", "2026-09-22", "Rivals", everything, games=[lib.game, twin, lib.other])
+    assert lib.trashed == [] and _done(lib) == {"demo-6", "demo-7"}
+    lib.remove_game("demo-7", "2026-09-22", "Rivals", False, games=[lib.game, lib.other])      # alone in its folder: fine
+    assert len(lib.trashed) == 1
+
+
+def test_a_game_whose_folder_cannot_be_told_apart_from_the_library_is_never_removed(lib):
+    _full(lib)
+    with pytest.raises(RuntimeError, match="nothing was removed"):
+        lib.remove_game("demo-7", ".", None, True)
+    assert lib.trashed == []
+
+
+def test_storage_says_whether_removal_is_possible_for_each_row(lib):
+    _full(lib)
+    twin = SimpleNamespace(id="demo-6", date="2026-09-22", opponent="Rivals", title="T vs. Rivals")
+    rows = {r["id"]: r["shared"] for r in lib.storage([lib.game, twin])["rows"]}
+    assert rows == {"demo-7": True, "demo-6": True}
+    assert lib.storage([lib.game])["rows"][0]["shared"] is False

@@ -83,3 +83,16 @@ def test_a_video_found_elsewhere_is_never_a_target(tmp_path):
 def test_nothing_on_disk_means_nothing_to_remove(tmp_path):
     folders = game_folders(tmp_path, "2026-06-04", "Rovers")
     assert library.targets(folders, [], tmp_path, everything=True) == []
+
+
+import pytest
+
+
+def test_a_removal_can_never_cover_the_whole_library(tmp_path):
+    # A game with no usable date resolves to the team's folder itself (or above it).
+    _file(tmp_path / "2026-06-04_vs-rovers" / "Full Game" / "g.mp4", 10)
+    for date in ("", ".", ".."):
+        folders = game_folders(tmp_path, date, None)
+        for everything in (True, False):
+            with pytest.raises(ValueError, match="outside"):
+                library.targets(folders, [], tmp_path, everything)

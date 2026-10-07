@@ -76,3 +76,9 @@ def test_halves_and_the_combined_file_take_the_custom_name(tmp_path):
     (tmp_path / "T vs Rovers.mp4").write_text("x")
     assert _combined(tmp_path, "2026-06-04", "Rovers", "T vs Rovers") == tmp_path / "T vs Rovers-2.mp4"
     assert half_path(tmp_path, "2026-06-04", 1, "Rovers") == tmp_path / "2026-06-04_vs-rovers_half1.mp4"
+
+
+def test_a_custom_name_never_looks_like_an_unfinished_file():
+    assert custom_stem("{opponent}.part", "2026-06-04", "Rovers", "T") == "Rovers-part"
+    assert custom_stem("{opponent}.PART", "2026-06-04", "Rovers", "T") == "Rovers-PART"
+    assert custom_stem("{team}_HALF2", "2026-06-04", "Rovers", "T") == "T-HALF2"

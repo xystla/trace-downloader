@@ -326,12 +326,13 @@ class Api:
             report = self._w().storage(list(self._game_cache.values()))
         except Exception as e:
             return {"ok": False, "error": str(e)}
-        return {"ok": True, **report, "bin": platform_tasks.bin_name()}
+        return {"ok": True, **report, "bin": platform_tasks.bin_name(), "can_remove": platform_tasks.can_trash()}
 
     def remove_game(self, game_id, everything=False):
         """Move a game's full video, or everything saved for it, to the Trash."""
         moved, error = self._for_game(
-            game_id, lambda g: self._w().remove_game(g.id, g.date, g.opponent, bool(everything)))
+            game_id, lambda g: self._w().remove_game(g.id, g.date, g.opponent, bool(everything),
+                                                     games=list(self._game_cache.values())))
         if error:
             return {"ok": False, "error": error}
         return {"ok": True, "freed": moved, "bin": platform_tasks.bin_name()}

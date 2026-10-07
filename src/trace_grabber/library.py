@@ -61,4 +61,12 @@ def targets(folders, videos, root, everything: bool) -> list[Path]:
         wanted = [folders.root, folders.legacy_highlights]
     else:
         wanted = [folders.full_game]
-    return [p for p in wanted if p.exists()] + loose
+    found = [p for p in wanted if p.exists()] + loose
+    # The last check before the Trash. Whatever the game's date and opponent
+    # made of its folder, a removal covers things *within* the team's folder,
+    # never that folder itself or anything above or beside it.
+    here = Path(root).resolve()
+    for path in [folders.root] + found:      # the game's own folder too: a game with no usable date has none
+        if path.resolve() == here or not inside(path, root):
+            raise ValueError(f"{path} is outside the games folder")
+    return found
