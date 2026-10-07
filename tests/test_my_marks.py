@@ -47,21 +47,21 @@ def test_bookmarks_go_in_the_games_folder_without_waiting_in_line(game):
 
 def test_a_clip_is_cut_from_the_half_that_was_playing(game):
     _save(game, "2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4")
-    path = game.export_clip(*game.args, 2, 724.5, 751.5)
+    path = game.export_clip(*game.args, "2026-09-22_vs-rivals_half2.mp4", 724.5, 751.5)
     assert game.cuts == [("2026-09-22_vs-rivals_half2.mp4", 724.5, 27.0)]
     assert Path(path) == game.root / "My Clips" / "half2_12m04s-12m31s.mp4"
 
 
 def test_a_clip_from_a_game_saved_as_one_file(game):
     _save(game, "2026-09-22_vs-rivals.mp4")
-    path = game.export_clip(*game.args, 0, 3605, 3660)
+    path = game.export_clip(*game.args, "2026-09-22_vs-rivals.mp4", 3605, 3660)
     assert game.cuts == [("2026-09-22_vs-rivals.mp4", 3605.0, 55.0)] and Path(path).name == "60m05s-61m00s.mp4"
 
 
 def test_the_same_stretch_twice_keeps_both_clips(game):
     _save(game, "2026-09-22_vs-rivals.mp4")
-    first = game.export_clip(*game.args, 0, 10, 20)
-    second = game.export_clip(*game.args, 0, 10.4, 20.2)          # same seconds, so the same name
+    first = game.export_clip(*game.args, "2026-09-22_vs-rivals.mp4", 10, 20)
+    second = game.export_clip(*game.args, "2026-09-22_vs-rivals.mp4", 10.4, 20.2)          # same seconds, so the same name
     assert (Path(first).name, Path(second).name) == ("00m10s-00m20s.mp4", "00m10s-00m20s-2.mp4")
 
 
@@ -69,21 +69,35 @@ def test_a_clip_must_be_a_sensible_length(game):
     _save(game, "2026-09-22_vs-rivals.mp4")
     for start, end in ((10, 10.5), (0, 601), (20, 10)):
         with pytest.raises(RuntimeError, match="1 second to 10 minutes"):
-            game.export_clip(*game.args, 0, start, end)
+            game.export_clip(*game.args, "2026-09-22_vs-rivals.mp4", start, end)
     assert game.cuts == []
 
 
 def test_a_clip_needs_the_video_it_is_cut_from(game):
     _save(game, "2026-09-22_vs-rivals_half1.mp4")
-    with pytest.raises(RuntimeError, match="Couldn't find the video"):
-        game.export_clip(*game.args, 2, 10, 20)
-    with pytest.raises(RuntimeError, match="Couldn't find the video"):
-        game.export_clip(*game.args, 0, 10, 20)
+    for name in ("2026-09-22_vs-rivals_half2.mp4", "2026-09-22_vs-rivals.mp4", "../../state.json", ""):
+        with pytest.raises(RuntimeError, match="Couldn't find the video"):
+            game.export_clip(*game.args, name, 10, 20)
+
+
+def test_a_game_with_only_its_first_half_saved_can_still_be_cut(game):
+    # The page shows a lone half as the "Full game"; the clip must come from that file.
+    _save(game, "2026-09-22_vs-rivals_half1.mp4")
+    path = game.export_clip(*game.args, "2026-09-22_vs-rivals_half1.mp4", 10, 20)
+    assert game.cuts == [("2026-09-22_vs-rivals_half1.mp4", 10.0, 10.0)] and Path(path).name == "half1_00m10s-00m20s.mp4"
+
+
+def test_a_clip_comes_from_the_very_file_that_was_playing(game):
+    # A leftover second copy of a half sorts first; going by half number would cut the wrong footage.
+    _save(game, "2026-09-22_vs-rivals_half1-2.mp4", "2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4")
+    game.export_clip(*game.args, "2026-09-22_vs-rivals_half1.mp4", 10, 20)
+    game.export_clip(*game.args, "2026-09-22_vs-rivals_half1-2.mp4", 30, 40)
+    assert [cut[0] for cut in game.cuts] == ["2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half1-2.mp4"]
 
 
 def test_your_own_clips_are_listed_with_the_games_other_videos(game):
     _save(game, "2026-09-22_vs-rivals.mp4")
-    game.export_clip(*game.args, 0, 10, 20)
+    game.export_clip(*game.args, "2026-09-22_vs-rivals.mp4", 10, 20)
     media = game._game_media(*game.args)
     assert media["mine"] == [{"label": "0:10 – 0:20", "path": str(game.root / "My Clips" / "00m10s-00m20s.mp4")}]
     assert game._highlights_folder(*game.args, kind="mine") == str(game.root / "My Clips")

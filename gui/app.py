@@ -157,10 +157,10 @@ class Api:
         halves = [f for f in files if "_half" in Path(f).name]
         if len(halves) == len(files) and len(files) > 1:
             names = ["1st half", "2nd half"]
-            full = [{"label": names[i] if i < 2 else f"Part {i + 1}", "url": url(f)}
+            full = [{"label": names[i] if i < 2 else f"Part {i + 1}", "url": url(f), "name": Path(f).name}
                     for i, f in enumerate(files)]
         else:
-            full = [{"label": "Full game", "url": url(f)} for f in files[:1]]
+            full = [{"label": "Full game", "url": url(f), "name": Path(f).name} for f in files[:1]]
         return {"full": full,
                 "reel": url(media["reel"]) if media["reel"] else None,
                 "clips": [{"label": c["label"], "url": url(c["path"]), "half": c.get("half"),
@@ -277,10 +277,11 @@ class Api:
     def remove_bookmark(self, game_id, bookmark_id):
         return self._marks(game_id, lambda g: self._w().remove_bookmark(g.id, g.date, g.opponent, bookmark_id))
 
-    def export_clip(self, game_id, half, start, end):
-        """Cut a stretch of the saved full game into the game's My Clips folder."""
+    def export_clip(self, game_id, name, start, end):
+        """Cut a stretch of a saved full-game file (named as game_media named it)
+        into the game's My Clips folder."""
         path, error = self._for_game(
-            game_id, lambda g: self._w().export_clip(g.id, g.date, g.opponent, half, start, end))
+            game_id, lambda g: self._w().export_clip(g.id, g.date, g.opponent, name, start, end))
         if error:
             return {"ok": False, "error": error}
         return {"ok": True, "label": highlights.my_clip_label(Path(path).name), "url": self._url(path)}

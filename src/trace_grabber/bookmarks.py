@@ -6,12 +6,16 @@ clock Trace times its moments on, so a bookmark means the same moment whether
 the halves are saved as one file or two."""
 import json
 import secrets
+import threading
 from datetime import date
 from pathlib import Path
 
 FOLDER = "Bookmarks"
 FILE = "bookmarks.json"
 NOTE_MAX = 200
+# Each call from the page runs on its own thread, and two quick presses of the
+# bookmark key arrive together: one change is read, made and saved at a time.
+_LOCK = threading.Lock()
 
 
 def _path(game_root) -> Path:
@@ -57,25 +61,28 @@ def add(game_root, t: float, half: int, note: str = "") -> dict:
     """Bookmark a moment; returns the new bookmark."""
     mark = {"id": secrets.token_hex(4), "t": round(float(t), 1), "half": _half(half),
             "note": _note(note), "made": date.today().isoformat()}
-    _save(game_root, load(game_root) + [mark])
+    with _LOCK:
+        _save(game_root, load(game_root) + [mark])
     return mark
 
 
 def edit(game_root, bookmark_id: str, note: str) -> bool:
     """Change a bookmark's note; False when there is no such bookmark."""
-    marks = load(game_root)
-    found = [mark for mark in marks if mark["id"] == bookmark_id]
-    for mark in found:
-        mark["note"] = _note(note)
-    if found:
-        _save(game_root, marks)
+    with _LOCK:
+        marks = load(game_root)
+        found = [mark for mark in marks if mark["id"] == bookmark_id]
+        for mark in found:
+            mark["note"] = _note(note)
+        if found:
+            _save(game_root, marks)
     return bool(found)
 
 
 def remove(game_root, bookmark_id: str) -> bool:
     """Delete a bookmark; False when there is no such bookmark."""
-    marks = load(game_root)
-    kept = [mark for mark in marks if mark["id"] != bookmark_id]
-    if len(kept) != len(marks):
-        _save(game_root, kept)
+    with _LOCK:
+        marks = load(game_root)
+        kept = [mark for mark in marks if mark["id"] != bookmark_id]
+        if len(kept) != len(marks):
+            _save(game_root, kept)
     return len(kept) != len(marks)

@@ -65,3 +65,20 @@ def test_entries_that_are_not_bookmarks_are_left_out(tmp_path):
 def test_saving_never_leaves_a_half_written_file(tmp_path):
     bookmarks.add(tmp_path, 1, 1)
     assert sorted(p.name for p in (tmp_path / "Bookmarks").iterdir()) == ["bookmarks.json"]
+
+
+def test_bookmarks_added_at_the_same_moment_are_all_kept(tmp_path):
+    # Holding the key down, or two quick presses, sends several saves at once.
+    import threading
+    errors = []
+    def add(n):
+        try:
+            bookmarks.add(tmp_path, n, 1)
+        except Exception as error:      # noqa
+            errors.append(error)
+    threads = [threading.Thread(target=add, args=(n,)) for n in range(30)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and len(bookmarks.load(tmp_path)) == 30

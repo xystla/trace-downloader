@@ -119,18 +119,22 @@ class Worker:
         bookmark_store.remove(root, bookmark_id)
         return bookmark_store.load(root)
 
-    def export_clip(self, game_id, date, opponent, half, start, end):
-        """Cut start..end (seconds into the file that was playing: half 1 or 2, or
-        0 for a game saved as one file) into the game's My Clips folder; returns
-        the clip's path. Raises RuntimeError with a message for the person."""
-        start, end, half = float(start), float(end), int(half or 0)
+    def export_clip(self, game_id, date, opponent, name, start, end):
+        """Cut start..end (seconds into the file that was playing, given by its
+        file name) into the game's My Clips folder; returns the clip's path.
+        Raises RuntimeError with a message for the person."""
+        start, end = float(start), float(end)
         if not highlights.MY_CLIP_MIN <= end - start <= highlights.MY_CLIP_MAX:
             raise RuntimeError("A clip can be from 1 second to 10 minutes long.")
+        # The page says which file by name, and it must be one of this game's own:
+        # going by "first" or "second" picks the wrong video when a half is missing
+        # or an older copy of one is lying beside it.
         files = [Path(f) for f in self._game_files(date or game_id, opponent or None)]
-        source = next((f for f in files
-                       if (f"_half{half}" in f.name if half else "_half" not in f.name)), None)
+        source = next((f for f in files if f.name == name), None)
         if source is None:
             raise RuntimeError("Couldn't find the video file. It may have been moved or renamed.")
+        which = re.search(r"_half(\d)", source.name)
+        half = int(which.group(1)) if which else 0
         folder = self._folders(game_id, date, opponent).my_clips
         first = folder / highlights.my_clip_name(half, start, end)
         dest, n = first, 1

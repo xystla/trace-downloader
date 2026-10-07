@@ -373,15 +373,15 @@ def test_everything_saved_for_a_game_can_be_played_inside_the_app(api):
              "recaps": [{"label": "#10", "path": "/v/P/player-10.mp4"}]}
     api._worker.game_media = lambda game_id, date, opponent: saved
     media = api.game_media("t-1")
-    assert media["full"] == [{"label": "1st half", "url": "http://127.0.0.1:1/tok/g_half1.mp4"},
-                             {"label": "2nd half", "url": "http://127.0.0.1:1/tok/g_half2.mp4"}]
+    assert media["full"] == [{"label": "1st half", "url": "http://127.0.0.1:1/tok/g_half1.mp4", "name": "g_half1.mp4"},
+                             {"label": "2nd half", "url": "http://127.0.0.1:1/tok/g_half2.mp4", "name": "g_half2.mp4"}]
     assert media["reel"] == "http://127.0.0.1:1/tok/Team Highlight Reel.mp4"
     assert media["clips"] == [{"label": "Shot · 1st half 4:55", "url": "http://127.0.0.1:1/tok/01.mp4",
                                "half": 1, "start": 295}]
     assert media["recaps"] == [{"label": "#10", "url": "http://127.0.0.1:1/tok/player-10.mp4"}]
     saved.update(full=["/v/g.mp4"], reel=None)
     again = api.game_media("t-1")
-    assert again["full"] == [{"label": "Full game", "url": "http://127.0.0.1:1/tok/g.mp4"}] and again["reel"] is None
+    assert again["full"] == [{"label": "Full game", "url": "http://127.0.0.1:1/tok/g.mp4", "name": "g.mp4"}] and again["reel"] is None
     assert api.game_media("nope") == {"full": [], "reel": None, "clips": [], "recaps": [], "mine": []}
 
 
@@ -853,16 +853,16 @@ def test_an_exported_clip_comes_back_ready_to_play(api):
     api._media = SimpleNamespace(url_for=lambda path: "http://127.0.0.1:1/tok/" + str(path).rsplit("/", 1)[-1])
     asked = []
     api._worker.export_clip = lambda *args: asked.append(args) or "/v/g/My Clips/half2_12m04s-12m31s.mp4"
-    assert api.export_clip("t-1", 2, 724.5, 751.5) == {
+    assert api.export_clip("t-1", "g_half2.mp4", 724.5, 751.5) == {
         "ok": True, "label": "2nd half 12:04 – 12:31", "url": "http://127.0.0.1:1/tok/half2_12m04s-12m31s.mp4"}
-    assert asked == [("t-1", "2026-06-04", "Rovers", 2, 724.5, 751.5)]
+    assert asked == [("t-1", "2026-06-04", "Rovers", "g_half2.mp4", 724.5, 751.5)]
 
 
 def test_a_clip_that_fails_says_why(api):
     def too_long(*args):
         raise RuntimeError("A clip can be from 1 second to 10 minutes long.")
     api._worker.export_clip = too_long
-    assert api.export_clip("t-1", 0, 0, 900) == {"ok": False, "error": "A clip can be from 1 second to 10 minutes long."}
+    assert api.export_clip("t-1", "g.mp4", 0, 900) == {"ok": False, "error": "A clip can be from 1 second to 10 minutes long."}
 
 
 def test_your_own_clips_can_be_played_in_the_app(api):
