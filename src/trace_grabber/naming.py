@@ -26,6 +26,12 @@ def combined_path(output_dir: Path, date: str, opponent: str | None) -> Path:
         parts.append(f"vs-{_slug(opponent)}")
     return _unique(output_dir, "_".join(parts))
 
+def half_path(output_dir: Path, date: str, half: int, opponent: str | None) -> Path:
+    """The one name a half has while its game is being downloaded in the app. A
+    download that was cut off must find its earlier half again, so unlike
+    build_path this never moves on to a '-2' name."""
+    return Path(output_dir) / f"{_game_stem(date, opponent)}_half{half}.mp4"
+
 def _game_stem(date: str, opponent: str | None) -> str:
     parts = [date]
     if opponent:

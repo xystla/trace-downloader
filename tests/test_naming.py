@@ -23,3 +23,14 @@ def test_combined_path_no_opponent(tmp_path):
 def test_combined_path_collision(tmp_path):
     (tmp_path / "2026-06-04.mp4").write_text("x")
     assert combined_path(tmp_path, "2026-06-04", None) == tmp_path / "2026-06-04-2.mp4"
+
+
+from trace_grabber.naming import half_path
+
+
+def test_a_half_in_progress_keeps_one_name_even_when_the_file_exists(tmp_path):
+    first = half_path(tmp_path, "2026-06-04", 1, "FC Rivals!")
+    assert first == tmp_path / "2026-06-04_vs-fc-rivals_half1.mp4"
+    first.write_text("x")
+    assert half_path(tmp_path, "2026-06-04", 1, "FC Rivals!") == first      # no '-2'
+    assert half_path(tmp_path, "2026-06-04", 2, None) == tmp_path / "2026-06-04_half2.mp4"
