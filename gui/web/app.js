@@ -722,10 +722,14 @@ async function attachTimeline(card, g) {
   drawBookmarks(card, g);
 }
 
-// Start the full game a few seconds before the moment. Without the full game,
-// play the saved highlight clip that covers the moment instead.
+// Go to a few seconds before the moment in the full game. Without the full game,
+// go to the saved highlight clip that covers the moment instead. The video is
+// left as it was: one that was paused stays paused there, one that was playing
+// carries on from there.
 function jumpTo(card, id, m, line) {
   const player = card._player;
+  const carryOn = () => { if (!wasPaused) player.video.play().catch(() => {}); };
+  const wasPaused = !!player && player.video.paused;
   const half = m.half === 2 ? 2 : 1;
   const fullAt = (h) => player ? player.sources.findIndex((s) => s.full && (s.half === 0 || s.half === h)) : -1;
   const index = fullAt(half);
@@ -743,7 +747,7 @@ function jumpTo(card, id, m, line) {
       return;
     }
     const at = Math.max(0, inHalf - player.sources[clip].clipStart - 3);
-    const go = () => { player.video.currentTime = at; player.video.play().catch(() => {}); };
+    const go = () => { player.video.currentTime = at; carryOn(); };
     if (clip === player.current && player.video.readyState >= 1) go(); else player.show(clip, go);
     card.querySelector(".player").scrollIntoView({ block: "nearest", behavior: "smooth" });
     return;
@@ -752,11 +756,11 @@ function jumpTo(card, id, m, line) {
   const inFile = src.half === 2 && line.half1 ? m.t - line.half1 : m.t;
   player.show(index, () => {
     player.video.currentTime = Math.max(0, inFile - 5);
-    player.video.play().catch(() => {});
+    carryOn();
   });
   if (index === player.current && player.video.readyState >= 1) {
     player.video.currentTime = Math.max(0, inFile - 5);
-    player.video.play().catch(() => {});
+    carryOn();
   }
   card.querySelector(".player").scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
