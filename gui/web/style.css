@@ -567,3 +567,4 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 #storageTable .st-actions button { padding:5px 10px; font-size:12.5px; }
 #storageTable tfoot td { color:var(--muted); }
 #confirmRemove p { max-width:440px; line-height:1.5; }
+.field-hint { display:block; margin-top:4px; font-size:11.5px; line-height:1.4; color:var(--muted); }

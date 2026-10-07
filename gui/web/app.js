@@ -36,6 +36,7 @@ async function refresh() {
   if (s.welcome) showWelcome();
   if (s.settings) el("quality").value = s.settings.quality;
   if (s.settings) el("combine").checked = s.settings.combine !== false;
+  if (s.settings) { el("fileName").value = s.settings.file_name || ""; showFileNamePreview(); }
   if (s.settings && s.settings.output_dir) {
     el("outDir").textContent = s.settings.output_dir;
     el("outDir").title = s.settings.output_dir;
@@ -169,6 +170,7 @@ function appendGame(box, g) {
   });
   box.appendChild(div);
   if (gameState.get(g.id) === "saved") setSaved(div, g.id);
+  else if (gameState.get(g.id) === "missing") setMissing(div, g.id);
   else setIdle(div, g.id);
   loadThumb(div, g);
 }
@@ -1358,11 +1360,39 @@ function setSaved(g, id) {
   attachPlayer(g, id);
 }
 
+// Saved once, but the video isn't there any more: fetch it again, or say where it went.
+function setMissing(g, id) {
+  endProgress(g);
+  g.classList.remove("is-new");
+  const again = waiting("game:" + id) ? inLineButton("game:" + id)
+    : labelButton("download", "Download again", "Download the full game again.", () => startDownload(id));
+  const find = labelButton("search", "Find it…",
+    "Show TraceDown where the video is now. It is left where it is.", async () => {
+      find.disabled = true;
+      let res;
+      try { res = await api().find_video(id); } catch (e) { res = { ok: false, error: String(e) }; }
+      find.disabled = false;
+      if (res && res.ok) {
+        const game = allGames.find((x) => x.id === id);
+        if (game) game.state = "saved";
+        gameState.set(id, "saved");
+        setNote(id, "", false);
+        redrawButtons(id);
+      } else if (res && res.error) {
+        setNote(id, res.error, false);
+      }
+    });
+  g.querySelector(".action").replaceChildren(again, find, highlightsButton(id), recapsButton(g, id));
+  setNote(id, "The video isn't where it was saved. It may have been moved, renamed or deleted.", false);
+}
+
 // Redraw a card's buttons after something changed, unless it is mid-download.
 function redrawButtons(id) {
   const g = el("g-" + id);
   if (!g || g.classList.contains("is-busy")) return;
-  if (gameState.get(id) === "saved") setSaved(g, id); else setIdle(g, id);
+  if (gameState.get(id) === "saved") setSaved(g, id);
+  else if (gameState.get(id) === "missing") setMissing(g, id);
+  else setIdle(g, id);
 }
 
 async function runHighlights(id) {
@@ -2596,6 +2626,17 @@ el("changeDir").onclick = async () => {
   }
 };
 el("quality").onchange = (e) => api().save_settings({ quality: e.target.value });
+// The name new full-game videos are given: an example is shown as it is typed, and it is kept on leaving the field.
+async function showFileNamePreview() {
+  const typed = el("fileName").value;
+  let res;
+  try { res = await api().preview_file_name(typed); } catch (e) { return; }
+  if (el("fileName").value !== typed || !res || !res.name) return;      // typed on since
+  el("fileNamePreview").textContent = `Example: ${res.name}`
+    + (typed.trim() && !res.custom ? " (that leaves no name, so the usual name is used)" : "");
+}
+el("fileName").oninput = showFileNamePreview;
+el("fileName").onchange = (e) => api().save_settings({ file_name: e.target.value });
 // Appearance: light, dark, or whatever the computer is set to. Remembered on this computer.
 el("theme").value = document.documentElement.dataset.theme || "system";
 el("theme").onchange = (e) => setTheme(e.target.value);

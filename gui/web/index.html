@@ -235,6 +235,11 @@
         <label>Quality
           <select id="quality"><option>highest</option><option>2000k</option><option>1000k</option></select>
         </label>
+        <label>File name for full games
+          <input id="fileName" type="text" maxlength="120" placeholder="{date}_vs-{opponent}" spellcheck="false" autocomplete="off">
+          <small class="field-hint">Use {date}, {team} and {opponent}. Leave it empty for the usual name. Applies to games downloaded from now on.</small>
+          <small id="fileNamePreview" class="field-hint"></small>
+        </label>
         <label class="inline"><span>Appearance</span>
           <select id="theme" aria-label="Appearance">
             <option value="system">Match my computer</option>
