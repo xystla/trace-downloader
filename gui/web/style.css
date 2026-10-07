@@ -492,6 +492,8 @@ button.queued { border-style:dashed; color:var(--muted); }
 .dl-row .action { display:flex; align-items:center; gap:8px; }
 .dl-row .bar.sliding > i { width:35%; animation:mini-slide 1.3s ease-in-out infinite; }
 .dl-row.is-waiting .hl-title { font-weight:500; }
+.caption.warn { color:var(--warn); }
+.dl-row .icon-btn:disabled { opacity:.35; pointer-events:none; }
 .season-top { display:flex; flex-direction:column; gap:12px; margin-bottom:14px; }
 #season-record { margin:0; }
 #season-record .sum-item { flex:1; padding:14px 16px; }

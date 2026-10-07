@@ -179,6 +179,8 @@ function renderGames(games) {
   allGames = games;
   gameState.clear();
   games.forEach((g) => gameState.set(g.id, g.state));
+  partial.clear();
+  games.forEach((g) => { if (g.partial != null) partial.set(g.id, g.partial); });
   clipCount.clear();
   games.forEach((g) => { if (g.clips) clipCount.set(g.id, g.clips); });
   el("gameTools").hidden = games.length === 0;
@@ -820,13 +822,21 @@ function recapsButton(g, id) {
 function setIdle(g, id) {
   endProgress(g);
   g.classList.add("is-new");
-  const full = waiting("game:" + id) ? inLineButton("game:" + id)
+  const share = partial.get(id);
+  const inLine = waiting("game:" + id);
+  const full = inLine ? inLineButton("game:" + id)
+    : share != null ? labelButton("download", `Resume (${Math.round(share * 100)}%)`,
+      "Carry on downloading the full game from where it stopped.", () => startDownload(id))
     : labelButton("download", "Full Game", "Download the full game video.", () => startDownload(id));
   const folder = labelButton("folder", "Open Folder", "Open this game's folder.", async () => {
     const res = await api().open_game_folder(id);
     if (!(res && res.ok)) setNote(id, (res && res.error) || "Couldn't open the folder.", false);
   });
-  g.querySelector(".action").replaceChildren(full, folder, highlightsButton(id), recapsButton(g, id));
+  const buttons = [full];
+  if (share != null && !inLine) {
+    buttons.push(labelButton("x", "Discard", "Delete what was downloaded of this game so far.", () => discardDownload(id)));
+  }
+  g.querySelector(".action").replaceChildren(...buttons, folder, highlightsButton(id), recapsButton(g, id));
 }
 
 function setBusy(g) {
@@ -838,6 +848,7 @@ function setBusy(g) {
   const b = document.createElement("button");
   b.className = "danger wide";
   b.innerHTML = icon("x") + "Cancel";
+  b.title = "Stop this download. What has been downloaded is kept, so it can carry on later.";
   b.onclick = () => { b.disabled = true; b.textContent = "Cancelling…"; api().cancel(); };
   action.appendChild(b);
 }
@@ -1075,7 +1086,7 @@ function onRecapProgress(p) {
 function setFailed(g, id, message) {
   setIdle(g, id);
   const b = g.querySelector(".action button");
-  b.innerHTML = icon("retry") + "Retry";
+  if (!partial.has(id)) b.innerHTML = icon("retry") + "Retry";
   setNote(id, "Download failed" + (message ? ": " + message : ""), false);
   g.querySelector(".err").title = message || "";
 }
@@ -1092,10 +1103,29 @@ function setState(g, kind, iconName, text, title) {
   g.querySelector(".action").replaceChildren(span);
 }
 
+// "about 6 min left" from a number of seconds; "" when there is nothing to go on yet.
+function timeLeft(secs) {
+  if (secs == null) return "";
+  if (secs < 60) return "less than a minute left";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `about ${mins} min left`;
+  return `about ${Math.floor(mins / 60)} h ${mins % 60} min left`;
+}
+
+// The line under a full game while it downloads.
+function progressText(p) {
+  if (p.joining) return `Half ${p.half} · Putting the video together…`;
+  return [`${Math.round(p.percent)}%`, `Half ${p.half}`, `${p.speed} MB/s`, timeLeft(p.eta)]
+    .filter(Boolean).join(" · ");
+}
+
 // ---- the download line ----
 // The app downloads one thing at a time. Anything started while another download
 // is running waits in line and starts by itself; the Downloads page shows the line.
 const jobs = [];           // in the order they were asked for
+const partial = new Map();       // game id -> share (0–1) of a full game downloaded before it was cut off
+const gamePercent = new Map();   // game id -> last percent reported while its full game downloads
+let lineHead = null;             // the "Up next" heading, which also says how long the line will take
 let autoBusy = false;      // an automatic download is the one running
 let autoText = "";
 
@@ -1119,7 +1149,7 @@ function enqueue(job) {
   if (findJob(job.key)) return;
   const old = jobs.findIndex((j) => j.key === job.key);     // a retry replaces the finished row
   if (old >= 0) jobs.splice(old, 1);
-  Object.assign(job, { state: "waiting", title: gameTitle(job.id), text: "", percent: null, outcome: null });
+  Object.assign(job, { state: "waiting", title: gameTitle(job.id), text: "", percent: null, outcome: null, eta: null });
   jobs.push(job);
   if (job.redraw) job.redraw();
   renderDownloads();
@@ -1134,6 +1164,55 @@ function dequeue(key) {
   renderDownloads();
 }
 
+// Throw away what a cut-off full-game download left on disk.
+async function discardDownload(id) {
+  await api().discard_download(id);
+  partial.delete(id);
+  gamePercent.delete(id);
+  const i = jobs.findIndex((j) => j.key === "game:" + id && j.state !== "running" && j.state !== "waiting");
+  if (i >= 0) jobs.splice(i, 1);
+  setNote(id, "", false);
+  redrawButtons(id);
+  renderDownloads();
+  showFreeSpace();
+}
+
+// Swap a waiting job with the one before (-1) or after (+1) it in the line.
+function moveJob(key, step) {
+  const line = jobs.filter((j) => j.state === "waiting");
+  const at = line.findIndex((j) => j.key === key);
+  const other = line[at + step];
+  if (at < 0 || !other) return;
+  const a = jobs.indexOf(line[at]);
+  const b = jobs.indexOf(other);
+  [jobs[a], jobs[b]] = [jobs[b], jobs[a]];
+  renderDownloads();
+}
+
+// "Up next", plus roughly how long the games in line will take: the time left on
+// the game that is running, and that game's whole length again for each full game
+// waiting. Highlights and recaps in line are short and are not counted.
+function showLineTime() {
+  if (!lineHead) return;
+  const job = jobs.find((j) => j.state === "running" && j.kind === "Full Game");
+  const games = jobs.filter((j) => j.state === "waiting" && j.kind === "Full Game").length;
+  let text = "Up next";
+  if (job && job.eta != null && job.percent > 0 && job.percent < 1 && games) {
+    const whole = job.eta / (1 - job.percent);
+    text += " · " + timeLeft(job.eta + games * whole).replace(" left", " for the games in line");
+  }
+  lineHead.textContent = text;
+}
+
+async function showFreeSpace() {
+  let res;
+  try { res = await api().disk_free(); } catch (e) { return; }
+  el("dlFree").hidden = !(res && res.ok);
+  if (!res || !res.ok) return;
+  el("dlFree").textContent = `${res.text} free in the download folder`;
+  el("dlFree").classList.toggle("warn", !!res.low);
+}
+
 async function pump() {
   if (autoBusy || jobs.some((j) => j.state === "running")) return;
   const job = jobs.find((j) => j.state === "waiting");
@@ -1145,6 +1224,7 @@ async function pump() {
   const ok = !!(res && res.ok);
   job.state = ok ? "done" : res && res.stopped ? "stopped" : "failed";
   job.text = (res && res.text) || (ok ? "Saved." : "That didn't work.");
+  showFreeSpace();
   renderDownloads();
   pump();
 }
@@ -1183,16 +1263,28 @@ function jobRow(job) {
     job.els = { bar: made.bar, detail: made.note };
     made.bar.classList.toggle("sliding", job.percent === null);
     if (job.percent !== null) made.bar.firstChild.style.width = Math.max(2, job.percent * 100) + "%";
-    const stop = labelButton("x", "Stop", "Stop this download. Nothing half-done is kept.", () => {
+    const stop = labelButton("x", "Stop", job.kind === "Full Game"
+      ? "Stop this download. What has been downloaded is kept, so it can carry on later."
+      : "Stop this download. Nothing half-done is kept.", () => {
       stop.disabled = true;
       api().cancel();
     });
     stop.classList.add("danger");
     made.action.append(stop);
   } else if (job.state === "waiting") {
-    made.action.append(labelButton("x", "Remove", "Take this out of the line.", () => dequeue(job.key)));
+    const line = jobs.filter((j) => j.state === "waiting");
+    const at = line.indexOf(job);
+    const up = iconButton("up", "Move up the line", () => moveJob(job.key, -1));
+    up.disabled = at === 0;
+    const down = iconButton("down", "Move down the line", () => moveJob(job.key, 1));
+    down.disabled = at === line.length - 1;
+    made.action.append(up, down, labelButton("x", "Remove", "Take this out of the line.", () => dequeue(job.key)));
   } else if (job.state === "done") {
     made.action.append(savedLabel("Saved"));
+  } else if (job.kind === "Full Game" && partial.has(job.id)) {
+    made.action.append(
+      labelButton("retry", "Resume", "Carry on from what is already downloaded.", () => enqueue(job)),
+      labelButton("x", "Discard", "Delete what was downloaded of this game so far.", () => discardDownload(job.id)));
   } else {
     made.action.append(labelButton("retry", "Retry", "Try this download again.", () => enqueue(job)));
   }
@@ -1211,8 +1303,10 @@ function renderDownloads() {
   const list = el("dlList");
   list.replaceChildren();
   const group = (title, rows) => {
-    if (!rows.length) return;
-    list.append(node("h3", "dl-head", title), ...rows);
+    if (!rows.length) return null;
+    const head = node("h3", "dl-head", title);
+    list.append(head, ...rows);
+    return head;
   };
   const now = running.map(jobRow);
   if (autoBusy) {
@@ -1221,7 +1315,8 @@ function renderDownloads() {
     now.push(auto.row);
   }
   group("Downloading now", now);
-  group("Up next", next.map(jobRow));
+  lineHead = group("Up next", next.map(jobRow));
+  showLineTime();
   group("Finished", finished.map(jobRow));
   el("dlEmpty").hidden = list.childElementCount > 0;
 }
@@ -1273,8 +1368,16 @@ window.onPy = (event, p) => {
   if (event === "recap_progress") { onRecapProgress(p); return; }
   if (event === "saved") gameState.set(p.id, "saved");
   const gameJob = findJob("game:" + p.id);
+  if (event === "progress") gamePercent.set(p.id, p.percent);
+  if (event === "saved") partial.delete(p.id);
+  // Stopped or failed partway: what was downloaded is kept, so the card offers Resume.
+  if ((event === "cancelled" || event === "error") && gamePercent.get(p.id) > 0) {
+    partial.set(p.id, gamePercent.get(p.id) / 100);
+  }
   if (gameJob && event === "progress") {
-    jobProgress(gameJob.key, p.percent / 100, `${Math.round(p.percent)}% · Half ${p.half} · ${p.speed} MB/s`);
+    gameJob.eta = p.joining ? null : p.eta;
+    jobProgress(gameJob.key, p.percent / 100, progressText(p));
+    showLineTime();
   } else if (gameJob) {
     gameJob.outcome = event;
   }
@@ -1283,8 +1386,7 @@ window.onPy = (event, p) => {
   if (event === "progress") {
     setBusy(g);
     g.querySelector(".bar > i").style.width = p.percent + "%";
-    g.querySelector(".speed").textContent =
-      `${Math.round(p.percent)}% · Half ${p.half} · ${p.speed} MB/s`;
+    g.querySelector(".speed").textContent = progressText(p);
   } else if (event === "cancelled") {
     setIdle(g, p.id);
   } else if (event === "saved") {
@@ -1382,6 +1484,7 @@ function showView(name) {
     b.classList.toggle("on", b.dataset.view === name));
   if (name === "analytics") renderSeasonTop();
   if (name === "analytics" && !analyticsLoaded) loadAnalytics();
+  if (name === "downloads") showFreeSpace();
 }
 document.querySelectorAll("#nav button").forEach((b) => {
   b.onclick = () => {
