@@ -659,3 +659,134 @@ def test_free_space_is_reported_in_words_and_flagged_when_low(api):
         raise OSError("drive not connected")
     api._worker.disk_free = gone
     assert api.disk_free() == {"ok": False}
+
+
+def _config(auto, tmp_path, hours=3):
+    (tmp_path / "config.yaml").write_text(
+        f"output_dir: {tmp_path}\ncheck_interval_hours: {hours}\nquality: highest\n")
+    auto._worker.reload_config = lambda: True
+
+
+def _new_game(auto):
+    """A game that appeared after automatic downloads were switched on."""
+    auto.set_auto(True)
+    new = Game("t-3", "t", "2026-06-10", "Athletic", "T vs. Athletic")
+    games = [new] + list(auto._game_cache.values())
+    auto._worker.list_games = lambda: (games, {"t-1"})
+    auto.system.clear()
+
+
+def test_automatic_options_start_as_everything_every_three_hours(auto, tmp_path):
+    _config(auto, tmp_path)
+    assert auto.auto_options() == {"full": True, "highlights": True, "recaps": True, "interval": 3}
+
+
+def test_choosing_what_automatic_downloads_fetch(auto, tmp_path):
+    _config(auto, tmp_path)
+    assert auto.set_auto_choices({"full": True, "highlights": False, "recaps": False}) == {
+        "ok": True, "full": True, "highlights": False, "recaps": False}
+    assert auto.auto_options()["highlights"] is False
+
+
+def test_the_last_choice_cannot_be_switched_off(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto.set_auto_choices({"full": True, "highlights": False, "recaps": False})
+    result = auto.set_auto_choices({"full": False, "highlights": False, "recaps": False})
+    assert result["ok"] is False and result["full"] is True and "at least one" in result["error"]
+    assert auto.auto_options()["full"] is True
+
+
+def test_changing_how_often_it_checks_restarts_the_timer(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto.set_auto(True)
+    auto.system.clear()
+    assert auto.save_settings({"interval": 12}) == {"ok": True}
+    assert auto.auto_options()["interval"] == 12 and auto.system == ["timer set"]
+
+
+def test_changing_the_interval_with_automatic_downloads_off_starts_no_timer(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto.save_settings({"interval": 6})
+    assert auto.auto_options()["interval"] == 6 and auto.system == []
+
+
+def test_an_interval_that_is_not_offered_is_not_saved(auto, tmp_path):
+    _config(auto, tmp_path)
+    for junk in (0, 2, -3, "soon", None):
+        auto.save_settings({"interval": junk})
+    assert auto.auto_options()["interval"] == 3
+
+
+def test_a_hand_edited_interval_is_reported_as_it_is(auto, tmp_path):
+    _config(auto, tmp_path, hours=2)
+    assert auto.auto_options()["interval"] == 2
+
+
+def test_auto_with_only_the_full_game_fetches_nothing_else(auto, tmp_path):
+    _config(auto, tmp_path)
+    _new_game(auto)
+    auto.set_auto_choices({"full": True, "highlights": False, "recaps": False})
+    assert auto.auto_check()["games"] == 1
+    assert auto.log == [("video", "t-3")]
+
+
+def test_auto_without_the_full_game_fetches_the_rest_once(auto, tmp_path):
+    _config(auto, tmp_path)
+    _new_game(auto)
+    auto.set_auto_choices({"full": False, "highlights": True, "recaps": True})
+    result = auto.auto_check()
+    assert auto.log == [("clips", "t-3"), ("recap", 1), ("recap", 3)]
+    assert result["games"] == 1 and auto.notes[-1] == "Automatic download: 1 new game saved"
+    auto.log.clear()
+    auto.auto_check()
+    assert auto.log == []                                      # handled: not fetched again
+
+
+def test_auto_tries_again_later_when_trace_has_nothing_ready(auto, tmp_path):
+    _config(auto, tmp_path)
+    _new_game(auto)
+    auto.set_auto_choices({"full": False, "highlights": True, "recaps": False})
+    def nothing_yet(game_id, date, opponent, on_progress=None):
+        auto.log.append(("clips", game_id))
+        raise RuntimeError("Trace has no moments for this game, so there are no highlights to make.")
+    auto._worker.export_highlights = nothing_yet
+    assert auto.auto_check()["games"] == 0
+    auto.auto_check()
+    assert auto.log == [("clips", "t-3"), ("clips", "t-3")] and auto.notes == []
+
+
+def test_auto_stops_and_says_so_once_when_the_disk_is_full(auto, tmp_path):
+    from trace_grabber import space
+    _config(auto, tmp_path)
+    _new_game(auto)
+    def no_room(*args):
+        raise space.NotEnoughSpace("Not enough disk space: this game needs about 9.0 GB and 3.0 GB is free.")
+    auto._worker.download_game = no_room
+    auto.auto_check()
+    auto.auto_check()
+    assert auto.notes == ["Automatic downloads paused: not enough disk space."]
+    assert auto.log == []                                      # no highlights or recaps either
+
+
+def test_auto_says_so_again_if_the_disk_fills_a_second_time(auto, tmp_path):
+    from trace_grabber import space
+    _config(auto, tmp_path)
+    _new_game(auto)
+    works = auto._worker.download_game
+    def no_room(*args):
+        raise space.NotEnoughSpace("Not enough disk space.")
+    auto._worker.download_game = no_room
+    auto.auto_check()
+    auto._worker.download_game = works                         # room was made
+    auto.auto_check()
+    auto._worker.list_games = lambda: ([Game("t-4", "t", "2026-06-12", "Town", "T vs. Town")], set())
+    auto._worker.download_game = no_room
+    auto.auto_check()
+    assert auto.notes.count("Automatic downloads paused: not enough disk space.") == 2
+
+
+def test_status_carries_the_automatic_options(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto._worker.logged_in = lambda: True
+    auto._worker.login_detail = lambda: ""
+    assert auto.get_status()["auto_options"] == {"full": True, "highlights": True, "recaps": True, "interval": 3}

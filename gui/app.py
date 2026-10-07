@@ -9,6 +9,7 @@ import tempfile
 import threading
 import webbrowser
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 
 import webview
@@ -25,6 +26,7 @@ from trace_grabber.config import load_config
 WEB = paths.resource_dir() / "gui" / "web"
 DATA = paths.data_dir()
 LAST_RUN = DATA / "last_run.json"
+INTERVALS = (1, 3, 6, 12, 24)      # hours between automatic checks offered in Settings
 
 
 def _user_job(fn):
@@ -70,6 +72,7 @@ class Api:
             "login_detail": self._w().login_detail(),
             "last_run": last,
             **self.auto_settings(),
+            "auto_options": self.auto_options(),
             "settings": {"output_dir": str(cfg.output_dir), "quality": cfg.quality, "combine": cfg.combine_halves},
             "version": paths.APP_VERSION,
         }
@@ -283,6 +286,26 @@ class Api:
         state = autodl.load(DATA)
         return {"auto": state.enabled, "login": state.login, "welcome": not state.welcomed}
 
+    def auto_options(self):
+        """What automatic downloads fetch for a new game, and how often they look."""
+        state = autodl.load(DATA)
+        return {"full": state.full, "highlights": state.highlights, "recaps": state.recaps,
+                "interval": load_config(DATA / "config.yaml").check_interval_hours}
+
+    def set_auto_choices(self, choices):
+        """Choose what automatic downloads fetch. At least one thing must stay on:
+        with nothing chosen they would run and do nothing."""
+        state = autodl.load(DATA)
+        names = ("full", "highlights", "recaps")
+        wanted = {name: bool(choices.get(name, getattr(state, name))) for name in names}
+        if not any(wanted.values()):
+            return {"ok": False, "error": "Automatic downloads need at least one thing to fetch.",
+                    **{name: getattr(state, name) for name in names}}
+        for name in names:
+            setattr(state, name, wanted[name])
+        autodl.save(DATA, state)
+        return {"ok": True, **wanted}
+
     def finish_welcome(self, auto, login):
         """Record the first-open choices (appearance is kept by the page itself)."""
         state = autodl.load(DATA)
@@ -345,8 +368,9 @@ class Api:
             self._schedule_auto(first_in_secs=None if ran else 600)
 
     def auto_check(self):
-        """Fetch every game added since automatic downloads were switched on: the
-        full game, its highlights and reel, and each player recap."""
+        """Fetch every game added since automatic downloads were switched on:
+        whichever of the full game, its highlights and reel, and each player
+        recap were chosen."""
         state = autodl.load(DATA)
         if not state.enabled or self._auto_running or self._user_jobs > 0:
             return {"ran": False, "games": 0}
@@ -356,24 +380,45 @@ class Api:
             w = self._w()
             games, done = w.list_games()
             self._game_cache = {g.id: g for g in games}
-            pending = autodl.pending(state, w.list_accounts()["active"], games, done)
+            account = w.list_accounts()["active"]
+            pending = autodl.pending(state, account, games, done)
             autodl.save(DATA, state)
             for index, g in enumerate(pending, 1):
                 name = f"vs {g.opponent or g.title}"
                 self._emit("auto", {"running": True,
                                     "text": f"Automatic download {index} of {len(pending)}: {name}"})
                 w.clear_cancel()
-                if not self._saved(self._run_download(g.id)):
+                got = False
+                if state.full:
+                    result = self._run_download(g.id)
+                    if result.get("no_space"):
+                        if not state.low_disk:        # say it once, not on every check
+                            platform_tasks.notify("Automatic downloads paused: not enough disk space.")
+                            state.low_disk = True
+                            autodl.save(DATA, state)
+                        break
+                    if not self._saved(result):
+                        if w.cancelled():
+                            break
+                        continue                  # no video yet, or it failed: try again next time
+                    if state.low_disk:
+                        state.low_disk = False
+                        autodl.save(DATA, state)
+                    got = True
+                if state.highlights:
+                    got = bool(self.download_highlights(g.id).get("ok")) or got
                     if w.cancelled():
                         break
-                    continue                  # no video yet, or it failed: try again next time
-                saved += 1
-                self.download_highlights(g.id)
-                if w.cancelled():
-                    break
-                self.download_all_recaps(g.id, quiet=True)
-                if w.cancelled():
-                    break
+                if state.recaps:
+                    got = bool(self.download_all_recaps(g.id, quiet=True).get("recaps")) or got
+                    if w.cancelled():
+                        break
+                if not state.full:
+                    # Without its video a game is never marked done, so note here
+                    # that it has been dealt with (or is still to be tried again).
+                    autodl.settle(state, account, g.id, got, date.today())
+                    autodl.save(DATA, state)
+                saved += got
             if saved:
                 platform_tasks.notify(
                     f"Automatic download: {saved} new game{'' if saved == 1 else 's'} saved")
@@ -643,8 +688,13 @@ class Api:
             data["quality"] = settings["quality"]
         if "combine" in settings:
             data["combine_halves"] = bool(settings["combine"])
+        retime = settings.get("interval") in INTERVALS and not isinstance(settings.get("interval"), bool)
+        if retime:
+            data["check_interval_hours"] = settings["interval"]
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         self._w().reload_config()
+        if retime and autodl.load(DATA).enabled:
+            self._schedule_auto()             # the next check comes one new interval from now
         return {"ok": True}
 
     def _emit(self, event, payload):

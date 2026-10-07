@@ -44,3 +44,45 @@ def test_each_account_gets_its_own_starting_line():
 def test_nothing_is_pending_while_switched_off():
     state = autodl.AutoState(enabled=False, seen={"demo": []})
     assert autodl.pending(state, "demo", _games("g-4"), set()) == []
+
+
+import json
+from datetime import date
+
+
+def test_new_choices_default_to_everything(tmp_path):
+    state = autodl.load(tmp_path)
+    assert (state.full, state.highlights, state.recaps, state.tried, state.low_disk) == (True, True, True, {}, False)
+    state.recaps = False
+    state.tried = {"g-9": "2026-10-01"}
+    autodl.save(tmp_path, state)
+    again = autodl.load(tmp_path)
+    assert (again.recaps, again.tried) == (False, {"g-9": "2026-10-01"})
+
+
+def test_settings_from_an_older_version_keep_their_choices(tmp_path):
+    (tmp_path / "auto.json").write_text(json.dumps(
+        {"enabled": True, "login": True, "welcomed": True, "seen": {"demo": ["g-1"]}}))
+    state = autodl.load(tmp_path)
+    assert (state.enabled, state.login, state.seen) == (True, True, {"demo": ["g-1"]})
+    assert (state.full, state.highlights, state.recaps) == (True, True, True)
+
+
+def test_settings_from_a_newer_version_still_load(tmp_path):
+    (tmp_path / "auto.json").write_text(json.dumps({"enabled": True, "something_new": 5}))
+    assert autodl.load(tmp_path).enabled is True
+
+
+def test_a_game_handled_without_its_video_is_not_fetched_again():
+    state = autodl.AutoState(enabled=True, seen={"demo": ["g-1"]})
+    assert autodl.settle(state, "demo", "g-2", got=True, today=date(2026, 10, 7)) is True
+    assert state.seen == {"demo": ["g-1", "g-2"]} and state.tried == {}
+
+
+def test_a_game_with_nothing_ready_is_tried_again_for_three_days_then_left_alone():
+    state = autodl.AutoState(enabled=True, seen={"demo": []})
+    assert autodl.settle(state, "demo", "g-2", got=False, today=date(2026, 10, 7)) is False
+    assert state.tried == {"g-2": "2026-10-07"} and state.seen == {"demo": []}
+    assert autodl.settle(state, "demo", "g-2", got=False, today=date(2026, 10, 9)) is False
+    assert autodl.settle(state, "demo", "g-2", got=False, today=date(2026, 10, 10)) is True
+    assert state.seen == {"demo": ["g-2"]} and state.tried == {}
