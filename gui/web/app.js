@@ -292,6 +292,7 @@ document.addEventListener("keydown", (e) => {
   // In the video player the arrow keys scrub, as they should.
   if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|SELECT|TEXTAREA|VIDEO)$/.test(e.target.tagName)) return;
   if (e.target.closest && e.target.closest(".player-frame")) return;
+  if (document.querySelector(".player-frame.is-full")) return;      // full screen: never change game under the video
   if (e.key === "ArrowLeft") { e.preventDefault(); stepSingle(-1); }
   if (e.key === "ArrowRight") { e.preventDefault(); stepSingle(1); }
 });
@@ -306,7 +307,7 @@ async function attachPlayer(card, id) {
   if (!media || el("g-" + id) !== card || card.querySelector(".player")) return;
   const sources = [];
   media.full.forEach((part, i) => sources.push({
-    group: "Full game", label: part.label, url: part.url, full: true,
+    group: "Full game", label: part.label, url: part.url, full: true, file: part.name,
     half: media.full.length > 1 ? i + 1 : 0 }));      // half 0 = both halves in one file
   if (media.reel) sources.push({ group: "Highlights", label: "Team Highlight Reel", url: media.reel });
   media.clips.forEach((c) => sources.push({ group: "Highlights", label: c.label, url: c.url,
@@ -322,7 +323,10 @@ async function attachPlayer(card, id) {
   video.playsInline = true;
   if (thumbUrls.has(id)) video.poster = thumbUrls.get(id);
   // If the file can't be played (moved, or an unsupported format), go back to the thumbnail.
-  video.addEventListener("error", () => { wrap.remove(); thumb.hidden = false; card._player = null; });
+  video.addEventListener("error", () => {
+    if (frame.classList.contains("is-full")) leaveFull();
+    wrap.remove(); thumb.hidden = false; card._player = null;
+  });
   const frame = node("div", "player-frame is-paused");
   frame.tabIndex = 0;
   frame.append(video, videoControls(frame, video));
@@ -521,6 +525,7 @@ function toggleFull(frame) {
   const on = !frame.classList.contains("is-full");
   document.querySelectorAll(".player-frame.is-full").forEach((f) => f.classList.remove("is-full"));
   frame.classList.toggle("is-full", on);
+  if (on) frame.focus();      // so the arrow keys skip through the video
   setWindowFull(on);
 }
 function leaveFull() {
@@ -537,6 +542,7 @@ function activePlayer() {
     frame: card.querySelector(".player-frame") };
 }
 
+const HELD_KEYS = ["j", "l", ",", "."];
 const playPause = ({ video }) => (video.paused ? video.play().catch(() => {}) : video.pause());
 // What each key does on a game's page. Later sections add theirs.
 const PLAYER_KEYS = {
@@ -558,13 +564,16 @@ document.addEventListener("keydown", (e) => {
   const tag = e.target.tagName;
   // Typing is typing: a note with a "k" in it must not pause the video.
   if (tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && e.target.type !== "range")) return;
+  // Esc first, whatever else is going on: nobody should be left stuck in full screen.
+  if (e.key === "Escape") { if (windowFull) { e.preventDefault(); leaveFull(); } return; }
   const active = activePlayer();
   if (!active) return;
-  if (e.key === "Escape") { if (windowFull) { e.preventDefault(); leaveFull(); } return; }
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (key === " " && tag === "BUTTON") return;      // space presses the focused button, as everywhere
   const action = PLAYER_KEYS[key];
   if (!action) return;
+  // Holding a key down repeats skipping and stepping, not a bookmark or full screen.
+  if (e.repeat && !HELD_KEYS.includes(key)) { e.preventDefault(); return; }
   e.preventDefault();
   action(active);
 });
@@ -660,6 +669,7 @@ async function attachTimeline(card, g) {
     const lengths = await Promise.all(fulls.map((s) => videoLength(s.url)));
     if (!card.isConnected || card.querySelector(".timeline")) return;
     const duration = lengths.reduce((a, b) => a + b, 0);
+    card._noTimeline = !duration;
     if (!duration) return;
     line = { duration, half1: fulls.length > 1 ? lengths[0] : null, moments: [] };
   }
@@ -873,7 +883,11 @@ async function addBookmark(card) {
   const player = card._player;
   const src = player && player.sources[player.current];
   if (!src || !src.full) { setNote(id, "Play the full game to bookmark a moment in it.", true); return; }
-  if (!block) { setNote(id, "The timeline is still loading. Try again in a moment.", true); return; }
+  if (!block) {
+    setNote(id, card._noTimeline ? "This video's length couldn't be read, so there is no timeline to bookmark on."
+      : "The timeline is still loading. Try again in a moment.", true);
+    return;
+  }
   const t = gameClock(card);
   const half = src.half || (block._line.half1 && t >= block._line.half1 ? 2 : 1);
   let res;
@@ -884,7 +898,16 @@ async function addBookmark(card) {
   const g = allGames.find((x) => x.id === id);
   drawBookmarks(card, g);
   const made = res.bookmarks.find((b) => b.id === res.id);
-  if (made) showBookmark(card, g, made, true);
+  if (!made) return;
+  const frame = card.querySelector(".player-frame");
+  if (frame && frame.classList.contains("is-full")) {
+    // The note field is under the video, out of sight: typing into it would
+    // swallow every key. The note can be added from the timeline afterwards.
+    showBookmark(card, g, made, false);
+    flash(frame, `Bookmarked ${clock(player.video.currentTime)}`);
+    return;
+  }
+  showBookmark(card, g, made, true);
 }
 
 // P and N: the mark before or after where the game is, Trace's and yours together.
@@ -965,7 +988,7 @@ async function exportClip(card) {
   if (!clip || !src || !src.full) return;
   player.note("clip", node("span", null, "Saving the clip…"));
   let res;
-  try { res = await api().export_clip(id, src.half, clip.a, clip.b); } catch (e) { res = { ok: false, error: String(e) }; }
+  try { res = await api().export_clip(id, src.file, clip.a, clip.b); } catch (e) { res = { ok: false, error: String(e) }; }
   if (!(res && res.ok)) {
     showClip(card);       // the marks are still good: let them try again
     setNote(id, (res && res.error) || "The clip couldn't be saved.", false);
@@ -1856,6 +1879,10 @@ window.onPy = (event, p) => {
     setIdle(g, p.id);
   } else if (event === "saved") {
     setSaved(g, p.id);
+    // On the game's own page the video has just appeared; a game Trace has no
+    // moments for only gets its timeline (for your bookmarks) now that it has one.
+    const game = allGames.find((x) => x.id === p.id);
+    if (layout === "single" && game) attachPlayer(g, p.id).finally(() => attachTimeline(g, game));
   } else if (event === "unavailable") {
     setState(g, "muted", null, "No video");
   } else if (event === "error") {
