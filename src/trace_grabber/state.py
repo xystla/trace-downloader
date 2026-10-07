@@ -15,3 +15,10 @@ def mark_done(path: Path, game_id: str) -> None:
 def new_game_ids(game_ids: list[str], path: Path) -> list[str]:
     done = load_state(path)
     return [g for g in game_ids if g not in done]
+
+def unmark(path: Path, game_id: str) -> None:
+    """Take a game off the saved list (its video was removed)."""
+    done = load_state(path)
+    if game_id in done:
+        done.discard(game_id)
+        Path(path).write_text(json.dumps(sorted(done), indent=2))
