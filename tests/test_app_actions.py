@@ -24,6 +24,7 @@ def api(monkeypatch):
     api._worker = SimpleNamespace(
         clear_cancel=lambda: None, cancelled=lambda: api.is_cancelled,
         partials=lambda games, done: {},
+        missing=lambda games, done: set(),
         download_game=lambda *a: api.saved_per_game,
         list_games=lambda: (games, set()),
         game_files=lambda game_id, date, opponent: api.files.get(game_id, []))
@@ -891,3 +892,90 @@ def test_full_screen_is_asked_of_the_window_and_never_raises(api):
     assert api.toggle_fullscreen() == {"ok": False}
     api._window = None
     assert api.toggle_fullscreen() == {"ok": False}
+
+
+def test_a_saved_game_whose_video_is_gone_is_listed_as_missing(api):
+    games = list(api._game_cache.values())
+    api._worker.games_result = lambda: (games, {"t-1", "t-2"}, [])
+    api._worker.clip_counts = lambda listed: {}
+    api._worker.missing = lambda listed, done: {"t-2"}
+    assert [(v["id"], v["state"]) for v in api.get_games()["games"]] == [("t-1", "saved"), ("t-2", "missing")]
+
+
+def _picker(api, answer):
+    asked = []
+    def create_file_dialog(kind, **options):
+        asked.append(options)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    api._window = SimpleNamespace(create_file_dialog=create_file_dialog)
+    return asked
+
+
+def test_finding_a_moved_video_remembers_where_it_is(api):
+    found = []
+    api._worker.set_found = lambda game_id, files: found.append((game_id, files)) or True
+    asked = _picker(api, ("/Volumes/Games/rovers_half1.mp4", "/Volumes/Games/rovers_half2.mp4"))
+    assert api.find_video("t-1") == {"ok": True}
+    assert found == [("t-1", ["/Volumes/Games/rovers_half1.mp4", "/Volumes/Games/rovers_half2.mp4"])]
+    assert asked[0]["allow_multiple"] is True
+    _picker(api, "/Volumes/Games/rovers.mp4")                  # some versions answer with one path, not a list
+    api.find_video("t-1")
+    assert found[-1] == ("t-1", ["/Volumes/Games/rovers.mp4"])
+
+
+def test_cancelling_the_picker_changes_nothing(api):
+    api._worker.set_found = lambda *args: pytest.fail("nothing was chosen")
+    _picker(api, None)
+    assert api.find_video("t-1") == {"ok": False}
+    _picker(api, RuntimeError("no window"))
+    assert api.find_video("t-1") == {"ok": False, "error": "no window"}
+    assert api.find_video("nope") == {"ok": False}
+
+
+def test_storage_reaches_the_page_with_the_name_of_the_bin(api, monkeypatch):
+    from gui import app
+    monkeypatch.setattr(app.platform_tasks, "bin_name", lambda: "Trash")
+    asked = []
+    report = {"rows": [{"id": "t-1", "title": "vs Rovers", "total": 1100}], "used": 1525, "other": 25, "free": 50}
+    api._worker.storage = lambda games: asked.append([g.id for g in games]) or report
+    assert api.storage() == {"ok": True, **report, "bin": "Trash"}
+    assert asked == [["t-1", "t-2"]]
+    def unreadable(games):
+        raise OSError("the drive is not connected")
+    api._worker.storage = unreadable
+    assert api.storage() == {"ok": False, "error": "the drive is not connected"}
+
+
+def test_removing_a_game_says_how_much_went_to_the_bin(api, monkeypatch):
+    from gui import app
+    monkeypatch.setattr(app.platform_tasks, "bin_name", lambda: "Recycle Bin")
+    asked = []
+    api._worker.remove_game = lambda *args: asked.append(args) or 4_200_000_000
+    assert api.remove_game("t-1") == {"ok": True, "freed": 4_200_000_000, "bin": "Recycle Bin"}
+    assert api.remove_game("t-1", True)["ok"] is True
+    assert asked == [("t-1", "2026-06-04", "Rovers", False), ("t-1", "2026-06-04", "Rovers", True)]
+
+
+def test_a_removal_that_fails_says_why(api):
+    def refuse(*args):
+        raise RuntimeError("This game is downloading. Stop the download first.")
+    api._worker.remove_game = refuse
+    assert api.remove_game("t-1") == {"ok": False, "error": "This game is downloading. Stop the download first."}
+    assert api.remove_game("nope") == {"ok": False, "error": "game not found"}
+
+
+def test_the_file_name_setting_is_previewed_and_saved(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto._worker.team_label = lambda: "Tiger Sharks"
+    assert auto.preview_file_name("") == {"name": "2026-06-04_vs-rovers.mp4", "custom": False}
+    assert auto.preview_file_name("{team} vs {opponent} {date}") == {
+        "name": "Tiger Sharks vs Rovers 2026-06-04.mp4", "custom": True}
+    assert auto.preview_file_name("???") == {"name": "2026-06-04_vs-rovers.mp4", "custom": False}
+    assert auto.save_settings({"file_name": "  {team} vs {opponent}  "}) == {"ok": True}
+    auto._worker.logged_in = lambda: True
+    auto._worker.login_detail = lambda: ""
+    assert auto.get_status()["settings"]["file_name"] == "{team} vs {opponent}"
+    auto.save_settings({"file_name": None})
+    assert auto.get_status()["settings"]["file_name"] == ""

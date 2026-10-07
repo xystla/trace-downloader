@@ -22,6 +22,7 @@ from gui.worker import Worker
 from gui.viewmodel import games_view, connection_state, score_view
 from trace_grabber import analytics, autodl, highlights, paths, platform_tasks, space, updates
 from trace_grabber.config import load_config
+from trace_grabber.naming import custom_stem
 
 WEB = paths.resource_dir() / "gui" / "web"
 DATA = paths.data_dir()
@@ -73,7 +74,8 @@ class Api:
             "last_run": last,
             **self.auto_settings(),
             "auto_options": self.auto_options(),
-            "settings": {"output_dir": str(cfg.output_dir), "quality": cfg.quality, "combine": cfg.combine_halves},
+            "settings": {"output_dir": str(cfg.output_dir), "quality": cfg.quality, "combine": cfg.combine_halves,
+                         "file_name": cfg.file_name},
             "version": paths.APP_VERSION,
         }
 
@@ -82,7 +84,9 @@ class Api:
         self._game_cache = {g.id: g for g in games}
         clips = self._w().clip_counts(games)
         partial = self._w().partials(games, done)      # full-game downloads that were cut off
-        views = [{**view, "clips": clips.get(view["id"], 0), "partial": partial.get(view["id"])}
+        missing = self._w().missing(games, done)        # saved, but the video is no longer there
+        views = [{**view, "clips": clips.get(view["id"], 0), "partial": partial.get(view["id"]),
+                  "state": "missing" if view["id"] in missing else view["state"]}
                  for view in games_view(games, done)]
         return {"games": views, "errors": errors}
 
@@ -294,6 +298,48 @@ class Api:
             return {"ok": True}
         except Exception:
             return {"ok": False}
+
+    # ---- the library: missing videos, storage, removing a game, file names ----
+    def find_video(self, game_id):
+        """Ask where a game's video is now and remember it. The file stays there."""
+        g = self._game_cache.get(game_id)
+        if not g or not self._window:
+            return {"ok": False}
+        # OPEN_DIALOG was renamed to FileDialog.OPEN in newer pywebview (as with FOLDER and SAVE).
+        kind = getattr(getattr(webview, "FileDialog", None), "OPEN", None)
+        if kind is None:
+            kind = webview.OPEN_DIALOG
+        try:
+            chosen = self._window.create_file_dialog(
+                kind, allow_multiple=True, file_types=("Video files (*.mp4;*.mov;*.m4v;*.mkv)",))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        if not chosen:
+            return {"ok": False}  # cancelled
+        files = [chosen] if isinstance(chosen, str) else list(chosen)
+        _, error = self._for_game(game_id, lambda game: self._w().set_found(game.id, files))
+        return {"ok": False, "error": error} if error else {"ok": True}
+
+    def storage(self):
+        """What each game takes on disk, for the Storage page."""
+        try:
+            report = self._w().storage(list(self._game_cache.values()))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, **report, "bin": platform_tasks.bin_name()}
+
+    def remove_game(self, game_id, everything=False):
+        """Move a game's full video, or everything saved for it, to the Trash."""
+        moved, error = self._for_game(
+            game_id, lambda g: self._w().remove_game(g.id, g.date, g.opponent, bool(everything)))
+        if error:
+            return {"ok": False, "error": error}
+        return {"ok": True, "freed": moved, "bin": platform_tasks.bin_name()}
+
+    def preview_file_name(self, pattern):
+        """The file name a pattern gives a sample game, for the Settings preview."""
+        stem = custom_stem(pattern, "2026-06-04", "Rovers", self._w().team_label())
+        return {"name": (stem or "2026-06-04_vs-rovers") + ".mp4", "custom": bool(stem)}
 
     def get_thumb(self, team_id, game_id):
         g = self._game_cache.get(game_id)
@@ -738,6 +784,8 @@ class Api:
             data["quality"] = settings["quality"]
         if "combine" in settings:
             data["combine_halves"] = bool(settings["combine"])
+        if "file_name" in settings:
+            data["file_name"] = str(settings["file_name"] or "").strip()[:200]
         retime = settings.get("interval") in INTERVALS and not isinstance(settings.get("interval"), bool)
         if retime:
             data["check_interval_hours"] = settings["interval"]
