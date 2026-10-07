@@ -312,6 +312,7 @@ async function attachPlayer(card, id) {
   media.clips.forEach((c) => sources.push({ group: "Highlights", label: c.label, url: c.url,
     clipHalf: c.half, clipStart: c.start }));
   media.recaps.forEach((r) => sources.push({ group: "Player recaps", label: r.label, url: r.url }));
+  (media.mine || []).forEach((c) => sources.push({ group: "My clips", label: c.label, url: c.url }));
   if (sources.length === 0) return;
 
   const thumb = card.querySelector(".thumb");
@@ -397,6 +398,7 @@ async function attachPlayer(card, id) {
   });
   video.addEventListener("pause", () => rememberPosition(id, player));
   player.onShow.push(() => { player.resumedAt = null; player.note("resume", null); });
+  player.onShow.push(() => { if (player.clip) clearClip(card); });      // marks belong to the file they were made in
   restorePosition(card, id);
   thumb.hidden = true;
   thumb.after(wrap);
@@ -902,6 +904,87 @@ Object.assign(PLAYER_KEYS, {
   b: ({ card }) => addBookmark(card),
   p: ({ card }) => stepMoment(card, -1),
   n: ({ card }) => stepMoment(card, 1),
+});
+
+// ---- a clip of your own: I and O mark where it starts and ends ----
+const CLIP_MIN = 1;
+const CLIP_MAX = 600;
+
+function markClip(card, end) {
+  const id = card.id.slice(2);
+  const player = card._player;
+  const src = player.sources[player.current];
+  if (!src || !src.full) { setNote(id, "Play the full game to cut a clip from it.", true); return; }
+  const clip = player.clip || (player.clip = { a: null, b: null });
+  clip[end] = player.video.currentTime;
+  if (clip.a != null && clip.b != null && clip.a > clip.b) [clip.a, clip.b] = [clip.b, clip.a];
+  showClip(card);
+}
+
+function clearClip(card) {
+  card._player.clip = null;
+  showClip(card);
+}
+
+// The line under the player for the clip being marked, and its stretch on the scrub bar.
+function showClip(card) {
+  const player = card._player;
+  const clip = player.clip;
+  const seek = card.querySelector(".vc-seek");
+  seek.style.background = "";
+  if (!clip || (clip.a == null && clip.b == null)) { player.note("clip", null); return; }
+  const clear = labelButton("x", "Clear", "Forget these marks.", () => clearClip(card));
+  if (clip.a == null || clip.b == null) {
+    player.note("clip", node("span", null, clip.a != null
+      ? `Clip starts at ${clock(clip.a)}. Press O where it should end.`
+      : `Clip ends at ${clock(clip.b)}. Press I where it should start.`), clear);
+    return;
+  }
+  const total = player.video.duration || 0;
+  if (total) {
+    const from = (clip.a / total) * 100;
+    const to = (clip.b / total) * 100;
+    const rest = "rgba(255,255,255,.3)";
+    seek.style.background = `linear-gradient(to right, ${rest} ${from}%, var(--accent) ${from}%, var(--accent) ${to}%, ${rest} ${to}%)`;
+  }
+  const length = clip.b - clip.a;
+  const why = length < CLIP_MIN ? "Too short: a clip needs at least a second."
+    : length > CLIP_MAX ? "Too long: a clip can be up to 10 minutes." : "";
+  const text = `Clip ${clock(clip.a)} → ${clock(clip.b)} (${Math.round(length)} s)`;
+  const save = labelButton("cut", "Export clip",
+    "Save this stretch as its own video in the game's My Clips folder.", () => exportClip(card));
+  save.disabled = !!why;
+  player.note("clip", node("span", null, why ? `${text}. ${why}` : text), save, clear);
+}
+
+async function exportClip(card) {
+  const id = card.id.slice(2);
+  const player = card._player;
+  const clip = player.clip;
+  const src = player.sources[player.current];
+  if (!clip || !src || !src.full) return;
+  player.note("clip", node("span", null, "Saving the clip…"));
+  let res;
+  try { res = await api().export_clip(id, src.half, clip.a, clip.b); } catch (e) { res = { ok: false, error: String(e) }; }
+  if (!(res && res.ok)) {
+    showClip(card);       // the marks are still good: let them try again
+    setNote(id, (res && res.error) || "The clip couldn't be saved.", false);
+    return;
+  }
+  setNote(id, "", false);
+  const index = player.addSource({ group: "My clips", label: res.label, url: res.url });
+  player.clip = null;
+  showClip(card);
+  player.note("clip",
+    node("span", null, `Saved “${res.label}”. It starts on the nearest keyframe, so it can begin up to 2 seconds early.`),
+    labelButton("play", "Play it", "Play the clip.", () => player.show(index, () => player.video.play().catch(() => {}))),
+    labelButton("folder", "Show in folder", "Show the clip in the game's My Clips folder.",
+      () => api().reveal_highlights(id, "mine")));
+}
+
+Object.assign(PLAYER_KEYS, {
+  i: ({ card }) => markClip(card, "a"),
+  o: ({ card }) => markClip(card, "b"),
 });
 
 // The game's analytics under its card, loaded once and shared with the Analytics page.
