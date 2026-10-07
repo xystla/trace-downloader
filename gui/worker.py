@@ -11,6 +11,7 @@ from playwright.sync_api import sync_playwright
 from trace_grabber.config import load_config
 from trace_grabber import accounts as accts_mod
 from trace_grabber import analytics_sync
+from trace_grabber import bookmarks as bookmark_store
 from trace_grabber import analytics, highlights, pieces, radar, recaps, segments, space
 from trace_grabber.analytics_sync import AnalyticsResult
 from trace_grabber import paths
@@ -96,6 +97,48 @@ class Worker:
 
     def disk_free(self):
         return self._disk_free()
+
+    # Bookmarks and clips of your own only touch the game's files, so these too
+    # answer on the caller's thread: they must work while a download is running.
+    def bookmarks(self, game_id, date, opponent):
+        return bookmark_store.load(self._folders(game_id, date, opponent).root)
+
+    def add_bookmark(self, game_id, date, opponent, t, half, note=""):
+        """(the new bookmark's id, every bookmark of the game)."""
+        root = self._folders(game_id, date, opponent).root
+        made = bookmark_store.add(root, t, half, note)
+        return made["id"], bookmark_store.load(root)
+
+    def edit_bookmark(self, game_id, date, opponent, bookmark_id, note):
+        root = self._folders(game_id, date, opponent).root
+        bookmark_store.edit(root, bookmark_id, note)
+        return bookmark_store.load(root)
+
+    def remove_bookmark(self, game_id, date, opponent, bookmark_id):
+        root = self._folders(game_id, date, opponent).root
+        bookmark_store.remove(root, bookmark_id)
+        return bookmark_store.load(root)
+
+    def export_clip(self, game_id, date, opponent, half, start, end):
+        """Cut start..end (seconds into the file that was playing: half 1 or 2, or
+        0 for a game saved as one file) into the game's My Clips folder; returns
+        the clip's path. Raises RuntimeError with a message for the person."""
+        start, end, half = float(start), float(end), int(half or 0)
+        if not highlights.MY_CLIP_MIN <= end - start <= highlights.MY_CLIP_MAX:
+            raise RuntimeError("A clip can be from 1 second to 10 minutes long.")
+        files = [Path(f) for f in self._game_files(date or game_id, opponent or None)]
+        source = next((f for f in files
+                       if (f"_half{half}" in f.name if half else "_half" not in f.name)), None)
+        if source is None:
+            raise RuntimeError("Couldn't find the video file. It may have been moved or renamed.")
+        folder = self._folders(game_id, date, opponent).my_clips
+        first = folder / highlights.my_clip_name(half, start, end)
+        dest, n = first, 1
+        while dest.exists():                # the same stretch cut twice: keep both
+            n += 1
+            dest = first.with_name(f"{first.stem}-{n}{first.suffix}")
+        highlights.cut_clip(source, start, end - start, dest)
+        return str(dest)
 
     def get_thumb(self, team_id, game_id, date=None, opponent=None):
         return self.submit(lambda: self._get_thumb(team_id, game_id, date, opponent))
@@ -715,7 +758,9 @@ class Worker:
                            "start": highlights.clip_place(p.name)[1]}
                           for p in (highlights.saved_clips(clips_dir) if clips_dir else [])],
                 "recaps": [{"label": recaps.recap_label(p.name), "path": str(p)}
-                           for p in sorted(recap_files, key=lambda p: (number(p), p.name))]}
+                           for p in sorted(recap_files, key=lambda p: (number(p), p.name))],
+                "mine": [{"label": highlights.my_clip_label(p.name), "path": str(p)}
+                         for p in highlights.my_clips(folders.my_clips)]}
 
     def _clip_counts(self, games):
         """{game id: team clips already cut}, for games that have any."""
@@ -726,13 +771,16 @@ class Worker:
         return {game_id: n for game_id, n in counts.items() if n}
 
     def _highlights_folder(self, game_id, date, opponent, kind="clips"):
-        """The folder holding a game's team clips ("clips") or player recaps
-        ("recaps"), or None when nothing of that kind is saved yet."""
+        """The folder holding a game's team clips ("clips"), player recaps
+        ("recaps") or your own clips ("mine"), or None when nothing of that kind
+        is saved yet."""
         folders = self._folders(game_id, date, opponent)
         if kind == "clips":
             folder = self._saved_clips(folders)[0]
             if folder:
                 highlights.build_reel(folder)
+        elif kind == "mine":
+            folder = folders.my_clips if highlights.my_clips(folders.my_clips) else None
         else:
             folder = next((f for f in (folders.players, folders.legacy_highlights)
                            if f.is_dir() and any(f.glob("player-*.mp4"))), None)

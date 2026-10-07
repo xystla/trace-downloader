@@ -20,7 +20,7 @@ from gui.media import MediaServer
 from gui.tray import Tray
 from gui.worker import Worker
 from gui.viewmodel import games_view, connection_state, score_view
-from trace_grabber import analytics, autodl, paths, platform_tasks, space, updates
+from trace_grabber import analytics, autodl, highlights, paths, platform_tasks, space, updates
 from trace_grabber.config import load_config
 
 WEB = paths.resource_dir() / "gui" / "web"
@@ -126,6 +126,12 @@ class Api:
         files = self._w().game_files(g.id, g.date, g.opponent) if g else []
         return files[0] if files else None
 
+    def _url(self, path):
+        """A local address the page can play a saved video from."""
+        if not hasattr(self, "_media"):
+            self._media = MediaServer()
+        return self._media.url_for(path)
+
     def _with_game_file(self, game_id, action):
         path = self._game_file(game_id)
         if not path:
@@ -137,8 +143,8 @@ class Api:
     def game_media(self, game_id):
         """Everything saved for a game as addresses the page can play: the full
         game (one part, or one per half when the halves are kept separate), the
-        highlight reel, each clip and each player recap."""
-        empty = {"full": [], "reel": None, "clips": [], "recaps": []}
+        highlight reel, each clip, each player recap and each clip of your own."""
+        empty = {"full": [], "reel": None, "clips": [], "recaps": [], "mine": []}
         g = self._game_cache.get(game_id)
         if not g:
             return empty
@@ -146,9 +152,7 @@ class Api:
             media = self._w().game_media(g.id, g.date, g.opponent)
         except Exception:
             return empty
-        if not hasattr(self, "_media"):
-            self._media = MediaServer()
-        url = self._media.url_for
+        url = self._url
         files = media["full"]
         halves = [f for f in files if "_half" in Path(f).name]
         if len(halves) == len(files) and len(files) > 1:
@@ -161,7 +165,8 @@ class Api:
                 "reel": url(media["reel"]) if media["reel"] else None,
                 "clips": [{"label": c["label"], "url": url(c["path"]), "half": c.get("half"),
                            "start": c.get("start")} for c in media["clips"]],
-                "recaps": [{"label": r["label"], "url": url(r["path"])} for r in media["recaps"]]}
+                "recaps": [{"label": r["label"], "url": url(r["path"])} for r in media["recaps"]],
+                "mine": [{"label": c["label"], "url": url(c["path"])} for c in media.get("mine", [])]}
 
     def play_game(self, game_id):
         return self._with_game_file(game_id, platform_tasks.open_file)
@@ -195,11 +200,11 @@ class Api:
         return {"ok": False, "error": error} if error else {"ok": True}
 
     def reveal_highlights(self, game_id, kind="clips"):
-        """Show a game's Highlights folder ("clips") or Player Highlights folder ("recaps")."""
+        """Show a game's Highlights folder ("clips"), Player Highlights folder ("recaps") or My Clips folder ("mine")."""
         folder, error = self._for_game(
             game_id, lambda g: self._w().highlights_folder(g.id, g.date, g.opponent, kind))
         if not folder:
-            what = "player recaps" if kind == "recaps" else "highlights"
+            what = {"recaps": "player recaps", "mine": "clips of your own"}.get(kind, "highlights")
             return {"ok": False, "error": error or f"No {what} have been saved for this game yet."}
         platform_tasks.reveal_file(folder)
         return {"ok": True}
@@ -251,6 +256,43 @@ class Api:
         except Exception:
             return {"ok": False}
         return {"ok": True, "free": free, "text": space.size_text(free), "low": free < space.LOW}
+
+    # ---- watching: bookmarks, clips of your own, full screen ----
+    def _marks(self, game_id, call):
+        """Run a bookmark call for a listed game; every one answers with the game's bookmarks."""
+        marks, error = self._for_game(game_id, call)
+        return {"ok": False, "error": error} if error else {"ok": True, "bookmarks": marks}
+
+    def bookmarks(self, game_id):
+        return self._marks(game_id, lambda g: self._w().bookmarks(g.id, g.date, g.opponent))
+
+    def add_bookmark(self, game_id, t, half, note=""):
+        made, error = self._for_game(
+            game_id, lambda g: self._w().add_bookmark(g.id, g.date, g.opponent, t, half, note))
+        return {"ok": False, "error": error} if error else {"ok": True, "id": made[0], "bookmarks": made[1]}
+
+    def edit_bookmark(self, game_id, bookmark_id, note):
+        return self._marks(game_id, lambda g: self._w().edit_bookmark(g.id, g.date, g.opponent, bookmark_id, note))
+
+    def remove_bookmark(self, game_id, bookmark_id):
+        return self._marks(game_id, lambda g: self._w().remove_bookmark(g.id, g.date, g.opponent, bookmark_id))
+
+    def export_clip(self, game_id, half, start, end):
+        """Cut a stretch of the saved full game into the game's My Clips folder."""
+        path, error = self._for_game(
+            game_id, lambda g: self._w().export_clip(g.id, g.date, g.opponent, half, start, end))
+        if error:
+            return {"ok": False, "error": error}
+        return {"ok": True, "label": highlights.my_clip_label(Path(path).name), "url": self._url(path)}
+
+    def toggle_fullscreen(self):
+        """Put the app's window into full screen, or back. The page makes the video
+        fill the window either way, so failing here only loses the last step."""
+        try:
+            self._window.toggle_fullscreen()
+            return {"ok": True}
+        except Exception:
+            return {"ok": False}
 
     def get_thumb(self, team_id, game_id):
         g = self._game_cache.get(game_id)

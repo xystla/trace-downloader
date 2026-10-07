@@ -382,7 +382,7 @@ def test_everything_saved_for_a_game_can_be_played_inside_the_app(api):
     saved.update(full=["/v/g.mp4"], reel=None)
     again = api.game_media("t-1")
     assert again["full"] == [{"label": "Full game", "url": "http://127.0.0.1:1/tok/g.mp4"}] and again["reel"] is None
-    assert api.game_media("nope") == {"full": [], "reel": None, "clips": [], "recaps": []}
+    assert api.game_media("nope") == {"full": [], "reel": None, "clips": [], "recaps": [], "mine": []}
 
 
 def test_analytics_games_carry_their_timeline(api):
@@ -823,3 +823,71 @@ def test_a_choice_changed_during_a_run_survives_the_low_disk_note(auto, tmp_path
     auto.auto_check()
     state = autodl.load(tmp_path)
     assert (state.highlights, state.low_disk) == (False, True)
+
+
+def test_bookmarks_reach_the_page_and_changes_come_back_as_the_new_list(api):
+    marks = [{"id": "a1", "t": 30.0, "half": 1, "note": "", "made": "2026-10-07"}]
+    asked = []
+    api._worker.bookmarks = lambda game_id, date, opponent: marks
+    api._worker.add_bookmark = lambda *args: asked.append(("add", args)) or ("a1", marks)
+    api._worker.edit_bookmark = lambda *args: asked.append(("edit", args)) or marks
+    api._worker.remove_bookmark = lambda *args: asked.append(("remove", args)) or []
+    assert api.bookmarks("t-1") == {"ok": True, "bookmarks": marks}
+    assert api.add_bookmark("t-1", 30, 1) == {"ok": True, "id": "a1", "bookmarks": marks}
+    assert api.edit_bookmark("t-1", "a1", "note") == {"ok": True, "bookmarks": marks}
+    assert api.remove_bookmark("t-1", "a1") == {"ok": True, "bookmarks": []}
+    assert asked == [("add", ("t-1", "2026-06-04", "Rovers", 30, 1, "")),
+                     ("edit", ("t-1", "2026-06-04", "Rovers", "a1", "note")),
+                     ("remove", ("t-1", "2026-06-04", "Rovers", "a1"))]
+
+
+def test_a_bookmark_that_cannot_be_saved_says_why(api):
+    def read_only(*args):
+        raise PermissionError("the folder is read-only")
+    api._worker.add_bookmark = read_only
+    assert api.add_bookmark("t-1", 30, 1) == {"ok": False, "error": "the folder is read-only"}
+    assert api.bookmarks("nope") == {"ok": False, "error": "game not found"}
+
+
+def test_an_exported_clip_comes_back_ready_to_play(api):
+    api._media = SimpleNamespace(url_for=lambda path: "http://127.0.0.1:1/tok/" + str(path).rsplit("/", 1)[-1])
+    asked = []
+    api._worker.export_clip = lambda *args: asked.append(args) or "/v/g/My Clips/half2_12m04s-12m31s.mp4"
+    assert api.export_clip("t-1", 2, 724.5, 751.5) == {
+        "ok": True, "label": "2nd half 12:04 – 12:31", "url": "http://127.0.0.1:1/tok/half2_12m04s-12m31s.mp4"}
+    assert asked == [("t-1", "2026-06-04", "Rovers", 2, 724.5, 751.5)]
+
+
+def test_a_clip_that_fails_says_why(api):
+    def too_long(*args):
+        raise RuntimeError("A clip can be from 1 second to 10 minutes long.")
+    api._worker.export_clip = too_long
+    assert api.export_clip("t-1", 0, 0, 900) == {"ok": False, "error": "A clip can be from 1 second to 10 minutes long."}
+
+
+def test_your_own_clips_can_be_played_in_the_app(api):
+    api._media = SimpleNamespace(url_for=lambda path: "http://127.0.0.1:1/tok/" + str(path).rsplit("/", 1)[-1])
+    api._worker.game_media = lambda game_id, date, opponent: {
+        "full": [], "reel": None, "clips": [], "recaps": [],
+        "mine": [{"label": "0:10 – 0:20", "path": "/v/g/My Clips/00m10s-00m20s.mp4"}]}
+    assert api.game_media("t-1")["mine"] == [{"label": "0:10 – 0:20", "url": "http://127.0.0.1:1/tok/00m10s-00m20s.mp4"}]
+    assert api.game_media("nope")["mine"] == []
+
+
+def test_your_own_clips_can_be_shown_in_their_folder(api):
+    api._worker.highlights_folder = lambda game_id, date, opponent, kind: "/v/g/My Clips" if kind == "mine" else None
+    assert api.reveal_highlights("t-1", "mine") == {"ok": True} and api.revealed == ["/v/g/My Clips"]
+    api._worker.highlights_folder = lambda *args: None
+    assert "clips of your own" in api.reveal_highlights("t-1", "mine")["error"]
+
+
+def test_full_screen_is_asked_of_the_window_and_never_raises(api):
+    calls = []
+    api._window = SimpleNamespace(toggle_fullscreen=lambda: calls.append("toggled"))
+    assert api.toggle_fullscreen() == {"ok": True} and calls == ["toggled"]
+    def broken():
+        raise RuntimeError("not supported here")
+    api._window = SimpleNamespace(toggle_fullscreen=broken)
+    assert api.toggle_fullscreen() == {"ok": False}
+    api._window = None
+    assert api.toggle_fullscreen() == {"ok": False}
