@@ -352,6 +352,14 @@ kbd { display:inline-block; min-width:18px; padding:2px 6px; border:1px solid va
 .tl-chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; font-size:12.5px; font-weight:600;
   border-radius:999px; background:var(--raised); border:1px solid var(--border); }
 .tl-mark.on { outline:2px solid var(--text); outline-offset:1px; z-index:1; }
+/* Your own bookmarks: a flag above the line, where Trace's dots sit below it. */
+.tl-key.mine { background:var(--accent); border-radius:2px; }
+.tl-mark.mine, .tl-mark.mine:hover { top:26%; width:10px; height:14px; border-radius:2px 6px 6px 2px;
+  background:var(--accent); border-color:var(--raised); }
+.tl-note { color:var(--text); font-size:13px; overflow-wrap:anywhere; }
+.tl-note-input { flex:1; min-width:160px; max-width:420px; margin:0; padding:6px 9px; font-size:13px; }
+.tl-picked { flex-wrap:wrap; gap:8px; }
+.tl-picked button { padding:5px 10px; font-size:12.5px; }
 /* ---- season summary ---- */
 .season-summary { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
 /* A game's own page is about that game: the season line would only push the video down. */

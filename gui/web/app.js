@@ -345,7 +345,11 @@ async function attachPlayer(card, id) {
   };
   sources.forEach(addOption);
   const tools = node("div", "player-tools");
-  tools.append(iconButton("keyboard", "Keyboard shortcuts (?)", () => el("shortcuts").showModal()));
+  const hasFull = sources.some((s) => s.full);
+  const flag = iconButton("flag", hasFull ? "Bookmark this moment (B)"
+    : "Download the full game to bookmark moments in it.", () => addBookmark(card));
+  flag.disabled = !hasFull;
+  tools.append(flag, iconButton("keyboard", "Keyboard shortcuts (?)", () => el("shortcuts").showModal()));
   bar.append(label, picker, node("span", "spacer"), tools);
   const notes = node("div", "player-notes");
   wrap.append(bar, notes);
@@ -641,19 +645,29 @@ function momentText(m, line) {
 }
 
 async function attachTimeline(card, g) {
-  const data = await loadStatsQuietly();
+  const [data, marks] = await Promise.all([loadStatsQuietly(), loadBookmarks(g.id)]);
   if (!card.isConnected || card.querySelector(".timeline")) return;
   const number = Number(g.id.split("-").pop());
   const game = data && data.games.find((x) => x.game_id === number);
-  const line = game && game.timeline;
-  if (!line || !line.moments.length) return;
+  let line = game && game.timeline;
+  const fulls = card._player ? card._player.sources.filter((s) => s.full) : [];
+  if ((!line || !line.moments.length) && !fulls.length) return;
+  if (!line || !(line.duration || line.moments.length)) {
+    // Trace has nothing for this game, so the line is as long as the saved video:
+    // your own bookmarks still need somewhere to go.
+    const lengths = await Promise.all(fulls.map((s) => videoLength(s.url)));
+    if (!card.isConnected || card.querySelector(".timeline")) return;
+    const duration = lengths.reduce((a, b) => a + b, 0);
+    if (!duration) return;
+    line = { duration, half1: fulls.length > 1 ? lengths[0] : null, moments: [] };
+  }
   const total = line.duration || (line.moments[line.moments.length - 1].t + 120);
   const block = node("div", "timeline");
   block._line = line;
   block._total = total;
   const head = node("div", "row");
   const legend = node("div", "legend");
-  for (const [cls, text] of [["us", "Us"], ["them", "Opponent"]]) {
+  for (const [cls, text] of [["us", "Us"], ["them", "Opponent"], ["mine", "Yours"]]) {
     const item = node("span");
     item.append(node("i", "tl-key " + cls), text);
     legend.append(item);
@@ -669,7 +683,7 @@ async function attachTimeline(card, g) {
   }
   // What a dot is stays out of the way until it is clicked; then it is named here.
   const picked = node("div", "tl-picked");
-  picked.append(node("span", "caption", "Click a dot to jump to that moment."));
+  picked.append(node("span", "caption", "Click a mark to jump to that moment. B bookmarks the moment you are watching."));
   line.moments.forEach((m) => {
     const theirs = m.label.startsWith("opp-");
     const kind = m.label.endsWith("shot") ? "shot" : "box";
@@ -678,7 +692,9 @@ async function attachTimeline(card, g) {
     mark.style.left = (m.t / total) * 100 + "%";
     mark.title = text;
     mark.setAttribute("aria-label", text);
+    mark._m = m;
     mark.onclick = () => {
+      block._jumped = m.t;
       track.querySelectorAll(".tl-mark").forEach((x) => x.classList.toggle("on", x === mark));
       const chip = node("span", "tl-chip");
       chip.append(node("i", `tl-key ${theirs ? "them" : "us"}`), text);
@@ -690,6 +706,8 @@ async function attachTimeline(card, g) {
   track.append(node("div", "tl-playhead"));
   block.append(head, track, picked);
   card.querySelector(".meta").before(block);
+  block._bookmarks = marks;
+  drawBookmarks(card, g);
 }
 
 // Start the full game a few seconds before the moment. Without the full game,
@@ -743,6 +761,148 @@ function movePlayhead(card) {
   const at = player.video.currentTime + (src.half === 2 && block._line.half1 ? block._line.half1 : 0);
   head.style.left = Math.min(100, (at / block._total) * 100) + "%";
 }
+
+// ---- your own bookmarks: a moment and an optional note, kept in the game's folder ----
+async function loadBookmarks(id) {
+  try {
+    const res = await api().bookmarks(id);
+    return res && res.ok ? res.bookmarks : [];
+  } catch (e) { return []; }
+}
+
+// How long a saved video is, without playing it (0 if it can't be read).
+function videoLength(url) {
+  return new Promise((resolve) => {
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => resolve(probe.duration || 0);
+    probe.onerror = () => resolve(0);
+    probe.src = url;
+  });
+}
+
+function bookmarkText(b, line) {
+  if (!line.half1) return `Your bookmark · ${clock(b.t)}`;
+  return `Your bookmark · ${b.half === 2 ? "2nd" : "1st"} half ${clock(b.half === 2 ? b.t - line.half1 : b.t)}`;
+}
+
+function drawBookmarks(card, g) {
+  const block = card.querySelector(".timeline");
+  if (!block) return;
+  const track = block.querySelector(".tl-track");
+  track.querySelectorAll(".tl-mark.mine").forEach((x) => x.remove());
+  (block._bookmarks || []).forEach((b) => {
+    const text = bookmarkText(b, block._line);
+    const mark = node("button", "tl-mark mine");
+    mark.style.left = Math.min(100, (b.t / block._total) * 100) + "%";
+    mark.title = b.note ? `${text}: ${b.note}` : text;
+    mark.setAttribute("aria-label", mark.title);
+    mark.dataset.bookmark = b.id;
+    mark._m = { t: b.t, half: b.half };
+    mark.onclick = () => {
+      block._jumped = b.t;
+      showBookmark(card, g, b, false);
+      jumpTo(card, g.id, mark._m, block._line);
+    };
+    track.querySelector(".tl-playhead").before(mark);
+  });
+}
+
+// The picked line for a bookmark: its note, or the field to write it in.
+function showBookmark(card, g, b, editing) {
+  const block = card.querySelector(".timeline");
+  const picked = block.querySelector(".tl-picked");
+  block.querySelectorAll(".tl-mark").forEach((x) => x.classList.toggle("on", x.dataset.bookmark === b.id));
+  const chip = node("span", "tl-chip");
+  chip.append(node("i", "tl-key mine"), bookmarkText(b, block._line));
+  const took = (res) => {
+    if (!(res && res.ok)) {
+      setNote(g.id, (res && res.error) || "The bookmark couldn't be saved.", false);
+      return false;
+    }
+    block._bookmarks = res.bookmarks;
+    drawBookmarks(card, g);
+    return true;
+  };
+  const call = async (make) => { try { return await make(); } catch (e) { return { ok: false, error: String(e) }; } };
+  const remove = labelButton("x", "Delete", "Delete this bookmark.", async () => {
+    if (took(await call(() => api().remove_bookmark(g.id, b.id)))) {
+      picked.replaceChildren(node("span", "caption", "Bookmark deleted."));
+    }
+  });
+  if (!editing) {
+    picked.replaceChildren(chip, node("span", "tl-note", b.note || ""),
+      labelButton("flag", b.note ? "Edit note" : "Add a note", "Write a note for this bookmark.",
+        () => showBookmark(card, g, b, true)), remove);
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "tl-note-input";
+  input.maxLength = 200;
+  input.value = b.note || "";
+  input.placeholder = "What happened here? (optional)";
+  input.setAttribute("aria-label", "Bookmark note");
+  const save = async () => {
+    const res = await call(() => api().edit_bookmark(g.id, b.id, input.value));
+    if (took(res)) showBookmark(card, g, res.bookmarks.find((x) => x.id === b.id) || b, false);
+  };
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();        // typing here is not for the player (or for leaving full screen)
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    if (e.key === "Escape") { e.preventDefault(); showBookmark(card, g, b, false); }
+  });
+  picked.replaceChildren(chip, input, labelButton("check", "Save", "Save the note.", save), remove);
+  input.focus();
+}
+
+// Where the playing full game is on the game's own clock, or -1 when something else is playing.
+function gameClock(card) {
+  const block = card.querySelector(".timeline");
+  const player = card._player;
+  const src = player && player.sources[player.current];
+  if (!block || !src || !src.full) return -1;
+  return player.video.currentTime + (src.half === 2 && block._line.half1 ? block._line.half1 : 0);
+}
+
+async function addBookmark(card) {
+  const id = card.id.slice(2);
+  const block = card.querySelector(".timeline");
+  const player = card._player;
+  const src = player && player.sources[player.current];
+  if (!src || !src.full) { setNote(id, "Play the full game to bookmark a moment in it.", true); return; }
+  if (!block) { setNote(id, "The timeline is still loading. Try again in a moment.", true); return; }
+  const t = gameClock(card);
+  const half = src.half || (block._line.half1 && t >= block._line.half1 ? 2 : 1);
+  let res;
+  try { res = await api().add_bookmark(id, t, half, ""); } catch (e) { res = { ok: false, error: String(e) }; }
+  if (!(res && res.ok)) { setNote(id, (res && res.error) || "The bookmark couldn't be saved.", false); return; }
+  setNote(id, "", false);
+  block._bookmarks = res.bookmarks;
+  const g = allGames.find((x) => x.id === id);
+  drawBookmarks(card, g);
+  const made = res.bookmarks.find((b) => b.id === res.id);
+  if (made) showBookmark(card, g, made, true);
+}
+
+// P and N: the mark before or after where the game is, Trace's and yours together.
+function stepMoment(card, dir) {
+  const block = card.querySelector(".timeline");
+  if (!block) return;
+  const marks = [...block.querySelectorAll(".tl-mark")].filter((x) => x._m).sort((a, b) => a._m.t - b._m.t);
+  let now = gameClock(card);
+  // A jump lands 5 seconds before its mark; step from the mark itself, or N would only ever find it again.
+  if (block._jumped != null && Math.abs(now - Math.max(0, block._jumped - 5)) < 3) now = block._jumped;
+  const next = dir > 0 ? marks.find((x) => x._m.t > now + 0.5)
+    : marks.reverse().find((x) => x._m.t < now - 0.5);
+  if (next) next.click();
+}
+
+Object.assign(PLAYER_KEYS, {
+  b: ({ card }) => addBookmark(card),
+  p: ({ card }) => stepMoment(card, -1),
+  n: ({ card }) => stepMoment(card, 1),
+});
 
 // The game's analytics under its card, loaded once and shared with the Analytics page.
 let statsRequest = null;
