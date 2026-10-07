@@ -218,3 +218,47 @@ def test_timeline_is_empty_for_stats_saved_without_times():
 def test_a_clips_place_in_the_game_is_read_from_its_name():
     assert highlights.clip_place("02_half2_01m35s_opp-shot.mp4") == (2, 95)
     assert highlights.clip_place("Team Highlight Reel.mp4") == (None, None)
+
+
+import pytest
+
+
+def test_my_clip_is_named_for_where_it_sits_in_the_game():
+    assert highlights.my_clip_name(2, 724.9, 751.2) == "half2_12m04s-12m31s.mp4"
+    assert highlights.my_clip_name(0, 3605, 3660) == "60m05s-61m00s.mp4"          # one file: no half
+    assert highlights.my_clip_label("half2_12m04s-12m31s.mp4") == "2nd half 12:04 – 12:31"
+    assert highlights.my_clip_label("60m05s-61m00s.mp4") == "60:05 – 61:00"
+    assert highlights.my_clip_label("half1_00m05s-00m09s-2.mp4") == "1st half 0:05 – 0:09"      # a second copy
+    assert highlights.my_clip_label("something else.mp4") == "something else"
+
+
+def test_my_clips_lists_finished_clips_in_order(tmp_path):
+    assert highlights.my_clips(tmp_path / "missing") == []
+    for name in ("half2_01m00s-01m10s.mp4", "half1_05m00s-05m10s.mp4", "half1_05m00s-05m10s.part.mp4", "notes.txt"):
+        (tmp_path / name).write_bytes(b"x")
+    assert [p.name for p in highlights.my_clips(tmp_path)] == ["half1_05m00s-05m10s.mp4", "half2_01m00s-01m10s.mp4"]
+
+
+def test_a_clip_is_cut_without_re_encoding(tmp_path, monkeypatch):
+    commands = []
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_bytes(b"clip")
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+    monkeypatch.setattr(highlights.subprocess, "run", fake_run)
+    dest = tmp_path / "My Clips" / "half1_12m04s-12m31s.mp4"
+    highlights.cut_clip(tmp_path / "game.mp4", 724.5, 27, dest)
+    (cmd,) = commands
+    assert cmd[cmd.index("-ss") + 1] == "724.5" and cmd[cmd.index("-t") + 1] == "27"
+    assert cmd[cmd.index("-c") + 1] == "copy" and cmd[cmd.index("-i") + 1] == str(tmp_path / "game.mp4")
+    assert [p.name for p in dest.parent.iterdir()] == ["half1_12m04s-12m31s.mp4"]
+
+
+def test_a_cut_that_fails_leaves_no_file(tmp_path, monkeypatch):
+    def fake_run(cmd, **kwargs):
+        Path(cmd[-1]).write_bytes(b"half a cl")
+        return type("R", (), {"returncode": 1, "stderr": "boom"})()
+    monkeypatch.setattr(highlights.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="couldn't be saved"):
+        highlights.cut_clip(tmp_path / "game.mp4", 5, 10, tmp_path / "My Clips" / "c.mp4")
+    assert list((tmp_path / "My Clips").iterdir()) == []

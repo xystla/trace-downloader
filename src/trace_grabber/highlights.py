@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import combine, segments
-from .tools import ffmpeg_path, part_path, subprocess_flags
+from .tools import complete_or_nothing, ffmpeg_path, part_path, subprocess_flags
 
 PAD_SECS = 5        # shown before and after each moment
 REEL_NAME = "Team Highlight Reel.mp4"   # every clip joined into one video
@@ -246,3 +246,50 @@ def clip_place(name: str):
 def saved_clips(folder) -> list[Path]:
     """Finished team clips in a folder, in match order."""
     return _clips(folder)
+
+
+# ---- clips the person cuts themselves ----
+MY_CLIP_MIN = 1         # seconds
+MY_CLIP_MAX = 600
+_MY_CLIP = re.compile(r"(?:half(\d)_)?(\d+)m(\d\d)s-(\d+)m(\d\d)s(?:-\d+)?\.mp4")
+
+
+def my_clip_name(half: int, start: float, end: float) -> str:
+    """'half2_12m04s-12m31s.mp4': the half (left out when the game is one file)
+    and where in that file the clip starts and ends."""
+    stamp = lambda secs: f"{int(secs) // 60:02d}m{int(secs) % 60:02d}s"
+    return (f"half{half}_" if half else "") + f"{stamp(start)}-{stamp(end)}.mp4"
+
+
+def my_clip_label(name: str) -> str:
+    """'half2_12m04s-12m31s.mp4' -> '2nd half 12:04 – 12:31'."""
+    m = _MY_CLIP.fullmatch(name)
+    if not m:
+        return Path(name).stem
+    half = {"1": "1st half ", "2": "2nd half "}.get(m.group(1) or "", "")
+    return f"{half}{int(m.group(2))}:{m.group(3)} – {int(m.group(4))}:{m.group(5)}"
+
+
+def my_clips(folder) -> list[Path]:
+    """Finished clips in a My Clips folder, by name (which is match order)."""
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    return sorted(p for p in folder.glob("*.mp4") if not p.name.endswith(".part.mp4"))
+
+
+def cut_clip(source, start: float, length: float, dest) -> None:
+    """Cut `length` seconds from `start` out of a saved video into dest, without
+    re-encoding: quick and lossless, at the cost of starting on the keyframe at
+    or before `start`. The file appears only once it is whole."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with complete_or_nothing(dest) as part:
+            cmd = build_cut_cmd(source, start, length, part)
+            cmd[0] = ffmpeg_path()
+            result = subprocess.run(cmd, capture_output=True, text=True, **subprocess_flags())
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr[-300:])
+    except RuntimeError as error:
+        raise RuntimeError("The clip couldn't be saved.") from error

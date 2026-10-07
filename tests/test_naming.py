@@ -34,3 +34,10 @@ def test_a_half_in_progress_keeps_one_name_even_when_the_file_exists(tmp_path):
     first.write_text("x")
     assert half_path(tmp_path, "2026-06-04", 1, "FC Rivals!") == first      # no '-2'
     assert half_path(tmp_path, "2026-06-04", 2, None) == tmp_path / "2026-06-04_half2.mp4"
+
+
+from trace_grabber.naming import game_folders
+
+
+def test_a_game_has_a_folder_for_clips_of_your_own(tmp_path):
+    assert game_folders(tmp_path, "2026-06-04", "Rovers").my_clips == tmp_path / "2026-06-04_vs-rovers" / "My Clips"

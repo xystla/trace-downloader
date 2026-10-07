@@ -42,6 +42,7 @@ FULL_GAME = "Full Game"
 HIGHLIGHTS = "Highlights"
 PLAYER_HIGHLIGHTS = "Player Highlights"
 THUMBNAIL = "Thumbnail"
+MY_CLIPS = "My Clips"
 
 @dataclass(frozen=True)
 class GameFolders:
@@ -65,6 +66,11 @@ class GameFolders:
     def thumbnail(self) -> Path:
         """The game's poster image, kept with the game so the folder is self-contained."""
         return self.root / THUMBNAIL / "thumbnail.jpg"
+
+    @property
+    def my_clips(self) -> Path:
+        """Clips the person cut out of the game themselves."""
+        return self.root / MY_CLIPS
 
 def game_folders(output_dir: Path, date: str, opponent: str | None) -> GameFolders:
     stem = _game_stem(date, opponent)
