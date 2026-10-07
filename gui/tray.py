@@ -19,13 +19,24 @@ class Tray:
         self._icon = icon
 
     @classmethod
-    def start(cls, on_open, on_check, on_quit, visible: bool):
-        """Must be called on the main thread before the window loop starts (macOS)."""
+    def start(cls, on_open, on_check, on_quit, visible: bool, status=None, expired=None):
+        """Must be called on the main thread before the window loop starts (macOS).
+
+        `status()` gives the line the menu leads with (what the app is doing, or
+        how the last check went; nothing hides it) and `expired()` says whether
+        the Trace login has lapsed, which adds a way back in. Call refresh()
+        when either changes."""
+        status = status or (lambda: "")
+        expired = expired or (lambda: False)
         try:
             import pystray
             icon = pystray.Icon(
                 "TraceDown", _image(), "TraceDown",
-                pystray.Menu(pystray.MenuItem("Open TraceDown", lambda: on_open(), default=True),
+                pystray.Menu(pystray.MenuItem(lambda item: status(), None, enabled=False,
+                                              visible=lambda item: bool(status())),
+                             pystray.MenuItem("Reconnect to Trace…", lambda: on_open(),
+                                              visible=lambda item: bool(expired())),
+                             pystray.MenuItem("Open TraceDown", lambda: on_open(), default=True),
                              pystray.MenuItem("Check for new games now", lambda: on_check()),
                              pystray.Menu.SEPARATOR,
                              pystray.MenuItem("Quit TraceDown", lambda: on_quit())))
@@ -34,12 +45,25 @@ class Tray:
         except Exception:
             return None
 
+    def refresh(self) -> None:
+        """Redraw the menu: its status line or the reconnect item has changed."""
+        def apply():
+            try:
+                self._icon.update_menu()
+            except Exception:
+                pass
+        self._on_main(apply)
+
     def set_visible(self, visible: bool) -> None:
         def apply():
             try:
                 self._icon.visible = visible
             except Exception:
                 pass
+        self._on_main(apply)
+
+    @staticmethod
+    def _on_main(apply) -> None:
         if sys.platform == "darwin":
             # Menu-bar items may only be touched from the main thread.
             try:

@@ -27,6 +27,7 @@ class AutoState:
     recaps: bool = True        # …and each player's recap
     tried: dict = field(default_factory=dict)  # game id -> first day it was tried without the full game
     low_disk: bool = False     # the "not enough disk space" notification has been sent
+    expired_notified: bool = False   # the "login has expired" notification has been sent
 
 
 def load(data_dir) -> AutoState:

@@ -236,3 +236,59 @@ def trash(paths) -> None:
             _trash_one(path)
         except Exception as error:
             raise RuntimeError(f"Couldn't move {path.name} to the {bin_name()}: {error}") from error
+
+
+# ---- the clipboard ----
+# -STA: the Windows clipboard only answers a single-threaded apartment. What is
+# copied is read from the environment (text) or a file (a picture), so nothing
+# needs escaping on the command line.
+_WIN_COPY_TEXT = "Set-Clipboard -Value $env:TRACEDOWN_TEXT"
+_WIN_COPY_IMAGE = (
+    "Add-Type -AssemblyName System.Windows.Forms, System.Drawing; "
+    "$picture = [System.Drawing.Image]::FromFile($env:TRACEDOWN_PATH); "
+    "[System.Windows.Forms.Clipboard]::SetImage($picture); $picture.Dispose()"
+)
+
+
+def _win_clipboard(script: str, **env) -> None:
+    done = subprocess.run(["powershell", "-STA", "-NoProfile", "-NonInteractive", "-Command", script],
+                          capture_output=True, text=True, check=False,
+                          env={**os.environ, **env}, **tools.subprocess_flags())
+    if done.returncode != 0:
+        raise RuntimeError((done.stderr or "").strip()[-200:] or "the clipboard refused it")
+
+
+def copy_text(text: str) -> None:
+    """Put text on the clipboard (raises RuntimeError if that can't be done here)."""
+    if sys.platform == "darwin":
+        from AppKit import NSPasteboard, NSPasteboardTypeString
+        board = NSPasteboard.generalPasteboard()
+        board.clearContents()
+        if not board.setString_forType_(text, NSPasteboardTypeString):
+            raise RuntimeError("the clipboard refused it")
+    elif sys.platform == "win32":
+        _win_clipboard(_WIN_COPY_TEXT, TRACEDOWN_TEXT=text)
+    else:
+        raise RuntimeError("copying isn't available on this system")
+
+
+def copy_image(png: bytes) -> None:
+    """Put a PNG picture on the clipboard (raises RuntimeError if that can't be done here)."""
+    if sys.platform == "darwin":
+        from AppKit import NSPasteboard, NSPasteboardTypePNG
+        from Foundation import NSData
+        board = NSPasteboard.generalPasteboard()
+        board.clearContents()
+        if not board.setData_forType_(NSData.dataWithBytes_length_(png, len(png)), NSPasteboardTypePNG):
+            raise RuntimeError("the clipboard refused it")
+    elif sys.platform == "win32":
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            f.write(png)
+            path = Path(f.name)
+        try:
+            _win_clipboard(_WIN_COPY_IMAGE, TRACEDOWN_PATH=str(path))
+        finally:
+            path.unlink(missing_ok=True)
+    else:
+        raise RuntimeError("copying isn't available on this system")

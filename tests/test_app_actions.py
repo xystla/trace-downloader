@@ -510,6 +510,7 @@ def auto(everything, monkeypatch, tmp_path):
     monkeypatch.setattr(app.platform_tasks, "login_disable", lambda: api.system.append("login off"))
     api._worker.list_accounts = lambda: {"active": "demo", "accounts": [{"id": "demo", "label": "Demo"}]}
     api._schedule_auto = lambda: api.system.append("timer set")
+    api._worker.logged_in = lambda: True
     return api
 
 
@@ -989,3 +990,78 @@ def test_the_file_name_setting_is_previewed_and_saved(auto, tmp_path):
     assert auto.get_status()["settings"]["file_name"] == "{team} vs {opponent}"
     auto.save_settings({"file_name": None})
     assert auto.get_status()["settings"]["file_name"] == ""
+
+
+def test_an_expired_login_found_by_a_background_check_is_told_once(auto, tmp_path):
+    _config(auto, tmp_path)
+    _new_game(auto)
+    listing = auto._worker.list_games
+    auto._worker.logged_in = lambda: False
+    auto._worker.list_games = lambda: pytest.fail("there is nothing to list while logged out")
+    assert auto.auto_check() == {"ran": True, "games": 0, "expired": True}
+    auto.auto_check()
+    wanted = "Your Trace login has expired. Open TraceDown and reconnect to keep downloading new games."
+    assert auto.notes == [wanted] and auto.log == []
+    assert auto.tray_status().startswith("Trace login expired")
+    auto._worker.logged_in = lambda: True                        # reconnected
+    auto._worker.list_games = listing
+    auto.auto_check()
+    assert not auto.tray_status().startswith("Trace login expired")
+    auto._worker.logged_in = lambda: False                       # and months later it lapses again
+    auto._worker.list_games = lambda: pytest.fail("nothing to list")
+    auto.auto_check()
+    assert auto.notes.count(wanted) == 2
+
+
+def test_reconnecting_in_the_window_clears_the_expired_status(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto.set_auto(True)
+    auto._worker.logged_in = lambda: False
+    auto.auto_check()
+    auto._worker.logged_in = lambda: True
+    auto._worker.login_detail = lambda: ""
+    auto.get_status()
+    assert not auto.tray_status().startswith("Trace login expired")
+
+
+def test_the_tray_says_what_is_downloading_and_when_it_last_checked(auto, tmp_path):
+    _config(auto, tmp_path)
+    _new_game(auto)
+    refreshed = []
+    auto._tray = SimpleNamespace(refresh=lambda: refreshed.append(auto.tray_status()), set_visible=lambda on: None)
+    during = []
+    def download_game(game_id, team_id, date, opponent, on_progress):
+        for percent in (0, 2, 40, 41, 90):
+            on_progress({"half": 1, "percent": percent, "speed": 8.0, "eta": 60, "joining": False})
+        during.append(auto.tray_status())
+        return 2
+    auto._worker.download_game = download_game
+    auto.auto_check()
+    assert during == ["Downloading vs Athletic · 90%"]
+    assert "Downloading vs Athletic · 0%" in refreshed and "Downloading vs Athletic · 40%" in refreshed
+    assert "Downloading vs Athletic · 2%" not in refreshed and "Downloading vs Athletic · 41%" not in refreshed      # not on every tick
+    assert auto.tray_status().startswith("Last checked today at ") and auto.tray_status().endswith("· 1 new game saved")
+    assert refreshed[-1] == auto.tray_status()
+
+
+def test_stats_and_pictures_are_copied_through_the_app(api, monkeypatch):
+    from gui import app
+    copied = []
+    monkeypatch.setattr(app.platform_tasks, "copy_text", lambda text: copied.append(("text", text)))
+    monkeypatch.setattr(app.platform_tasks, "copy_image", lambda png: copied.append(("png", png)))
+    assert api.copy_text("Shots 12") == {"ok": True}
+    assert api.copy_image("data:image/png;base64,iVBORw0KGgo=") == {"ok": True}
+    assert copied == [("text", "Shots 12"), ("png", b"\x89PNG\r\n\x1a\n")]
+
+
+def test_a_copy_that_cannot_be_made_says_so(api, monkeypatch):
+    from gui import app
+    def refuse(_):
+        raise RuntimeError("no clipboard here")
+    monkeypatch.setattr(app.platform_tasks, "copy_text", refuse)
+    monkeypatch.setattr(app.platform_tasks, "copy_image", refuse)
+    assert api.copy_text("x") == {"ok": False, "error": "Couldn't copy it to the clipboard."}
+    assert api.copy_image("data:image/png;base64,iVBORw0KGgo=") == {"ok": False, "error": "Couldn't copy it to the clipboard."}
+    for junk in ("", "not a picture", "data:image/png;base64,@@@", "data:image/jpeg;base64,AAAA", None):
+        assert api.copy_image(junk) == {"ok": False, "error": "There was no picture to copy."}
+    assert api.copy_text("") == {"ok": False, "error": "There was nothing to copy."}

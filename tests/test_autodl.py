@@ -86,3 +86,11 @@ def test_a_game_with_nothing_ready_is_tried_again_for_three_days_then_left_alone
     assert autodl.settle(state, "demo", "g-2", got=False, today=date(2026, 10, 9)) is False
     assert autodl.settle(state, "demo", "g-2", got=False, today=date(2026, 10, 10)) is True
     assert state.seen == {"demo": ["g-2"]} and state.tried == {}
+
+
+def test_the_login_expired_note_is_remembered_as_sent(tmp_path):
+    state = autodl.load(tmp_path)
+    assert state.expired_notified is False
+    state.expired_notified = True
+    autodl.save(tmp_path, state)
+    assert autodl.load(tmp_path).expired_notified is True

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from trace_grabber.games import Game
 
@@ -45,3 +45,27 @@ def game_view(game: Game, downloaded_ids: set[str]) -> dict:
 
 def games_view(games: list[Game], downloaded_ids: set[str]) -> list[dict]:
     return [game_view(g, downloaded_ids) for g in games]
+
+
+def tray_status(now: datetime, downloading, checking: bool, expired: bool, last) -> str:
+    """The line at the top of the tray menu: what the app is doing right now, else
+    how the last check for new games went, else nothing. `downloading` is
+    (game name, percent) or None; `last` is (when, games saved) or None."""
+    if downloading:
+        return f"Downloading {downloading[0]} · {int(downloading[1])}%"
+    if checking:
+        return "Checking for new games…"
+    if expired:
+        return "Trace login expired · reconnect to keep downloading"
+    if not last:
+        return ""
+    when, saved = last
+    clock = when.strftime("%I:%M %p").lstrip("0")
+    if when.date() == now.date():
+        day = "today"
+    elif when.date() == now.date() - timedelta(days=1):
+        day = "yesterday"
+    else:
+        day = f"{when:%b} {when.day}"
+    found = "no new games" if not saved else f"{saved} new game{'' if saved == 1 else 's'} saved"
+    return f"Last checked {day} at {clock} · {found}"

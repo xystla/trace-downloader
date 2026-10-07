@@ -188,3 +188,51 @@ def test_removal_is_not_offered_on_windows_until_it_is_proven_safe_there(monkeyp
     assert folder.exists()
     monkeypatch.setattr(pt.sys, "platform", "darwin")
     assert pt.can_trash() is True
+
+
+def _fake_mac_pasteboard(monkeypatch, pt):
+    put = []
+    class Board:
+        def clearContents(self):
+            put.append("cleared")
+        def setString_forType_(self, text, kind):
+            put.append((kind, text))
+            return True
+        def setData_forType_(self, data, kind):
+            put.append((kind, data))
+            return True
+    monkeypatch.setitem(sys.modules, "AppKit", SimpleNamespace(
+        NSPasteboard=SimpleNamespace(generalPasteboard=lambda: Board()),
+        NSPasteboardTypeString="public.utf8-plain-text", NSPasteboardTypePNG="public.png"))
+    monkeypatch.setitem(sys.modules, "Foundation", SimpleNamespace(
+        NSData=SimpleNamespace(dataWithBytes_length_=lambda raw, n: ("data", raw, n))))
+    monkeypatch.setattr(pt.sys, "platform", "darwin")
+    return put
+
+
+def test_text_and_pictures_go_to_the_mac_clipboard(monkeypatch):
+    from trace_grabber import platform_tasks as pt
+    put = _fake_mac_pasteboard(monkeypatch, pt)
+    pt.copy_text("Shots 12 · Passes 312")
+    pt.copy_image(b"\x89PNG...")
+    assert put == ["cleared", ("public.utf8-plain-text", "Shots 12 · Passes 312"),
+                   "cleared", ("public.png", ("data", b"\x89PNG...", 7))]
+
+
+def test_text_and_pictures_go_to_the_windows_clipboard(monkeypatch):
+    from trace_grabber import platform_tasks as pt
+    monkeypatch.setattr(pt.sys, "platform", "win32")
+    monkeypatch.setattr(pt.tools, "subprocess_flags", lambda: {})
+    runs = []
+    def run(cmd, **kwargs):
+        env = kwargs["env"]
+        picture = env.get("TRACEDOWN_PATH")
+        runs.append((cmd[:2], env.get("TRACEDOWN_TEXT"), open(picture, "rb").read() if picture else None))
+        return SimpleNamespace(returncode=0, stderr="")
+    monkeypatch.setattr(pt.subprocess, "run", run)
+    pt.copy_text("Shots 12")
+    pt.copy_image(b"\x89PNG...")
+    assert runs == [(["powershell", "-STA"], "Shots 12", None), (["powershell", "-STA"], None, b"\x89PNG...")]
+    monkeypatch.setattr(pt.subprocess, "run", lambda cmd, **kwargs: SimpleNamespace(returncode=1, stderr="no clipboard"))
+    with pytest.raises(RuntimeError):
+        pt.copy_text("x")

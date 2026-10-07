@@ -1,4 +1,6 @@
 # gui/app.py
+import base64
+import binascii
 import functools
 import inspect
 import json
@@ -9,7 +11,7 @@ import tempfile
 import threading
 import webbrowser
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import webview
@@ -19,7 +21,7 @@ from gui.instance import Instance
 from gui.media import MediaServer
 from gui.tray import Tray
 from gui.worker import Worker
-from gui.viewmodel import games_view, connection_state, score_view
+from gui.viewmodel import games_view, connection_state, score_view, tray_status
 from trace_grabber import analytics, autodl, highlights, paths, platform_tasks, space, updates
 from trace_grabber.config import load_config
 from trace_grabber.naming import custom_stem
@@ -52,6 +54,10 @@ class Api:
         self._user_jobs = 0        # downloads the person started that are still running
         self._auto_running = False
         self._auto_timer = None
+        # What the tray menu's status line is made from.
+        self._downloading_now = None     # (game name, percent) while a full game downloads
+        self._last_check = None          # (when, games saved) of the last automatic check
+        self._expired = False            # a background check found the Trace login had lapsed
 
     def _w(self):
         if self._worker is None:
@@ -66,6 +72,9 @@ class Api:
         cfg = load_config(DATA / "config.yaml")
         has_account = bool(self._w().list_accounts()["accounts"])
         logged_in = self._w().logged_in()
+        if logged_in and self._expired:          # reconnected in the window
+            self._expired = False
+            self._tray_changed()
         return {
             "logged_in": logged_in,
             "has_account": has_account,
@@ -100,8 +109,15 @@ class Api:
         if not g:
             return {"ok": False, "error": "game not found"}
 
+        name = f"vs {g.opponent or g.title}"
+
         def on_progress(info):
             self._emit("progress", {"id": game_id, **info})
+            # The tray menu follows along in steps of five percent, not on every tick.
+            before = self._downloading_now
+            self._downloading_now = (name, info.get("percent", 0))
+            if before is None or self._downloading_now[1] // 5 != before[1] // 5:
+                self._tray_changed()
         try:
             n = self._w().download_game(g.id, g.team_id, g.date, g.opponent, on_progress)
             if self._w().cancelled():
@@ -112,6 +128,18 @@ class Api:
         except Exception as e:
             self._emit("error", {"id": game_id, "message": str(e)})
             return {"ok": False, "error": str(e), "no_space": isinstance(e, space.NotEnoughSpace)}
+        finally:
+            self._downloading_now = None
+            self._tray_changed()
+
+    def tray_status(self):
+        """The line the tray menu leads with."""
+        return tray_status(datetime.now(), self._downloading_now, self._auto_running,
+                           self._expired, self._last_check)
+
+    def _tray_changed(self):
+        if self._tray:
+            self._tray.refresh()
 
     def _saved(self, result):
         return bool(result.get("ok") and result.get("files")) and not self._w().cancelled()
@@ -299,6 +327,33 @@ class Api:
         except Exception:
             return {"ok": False}
 
+    # ---- the clipboard: a game's stats as text, its heat map as a picture ----
+    def copy_text(self, text):
+        if not isinstance(text, str) or not text.strip():
+            return {"ok": False, "error": "There was nothing to copy."}
+        try:
+            platform_tasks.copy_text(text)
+        except Exception:
+            return {"ok": False, "error": "Couldn't copy it to the clipboard."}
+        return {"ok": True}
+
+    def copy_image(self, data_url):
+        """Copy a picture the page drew, handed over as a PNG data: address."""
+        head = "data:image/png;base64,"
+        try:
+            if not isinstance(data_url, str) or not data_url.startswith(head):
+                raise ValueError("not a PNG")
+            png = base64.b64decode(data_url[len(head):], validate=True)
+            if not png:
+                raise ValueError("empty")
+        except (ValueError, binascii.Error):
+            return {"ok": False, "error": "There was no picture to copy."}
+        try:
+            platform_tasks.copy_image(png)
+        except Exception:
+            return {"ok": False, "error": "Couldn't copy it to the clipboard."}
+        return {"ok": True}
+
     # ---- the library: missing videos, storage, removing a game, file names ----
     def find_video(self, game_id):
         """Ask where a game's video is now and remember it. The file stays there."""
@@ -476,8 +531,22 @@ class Api:
             return {"ran": False, "games": 0}
         self._auto_running = True
         saved = 0
+        self._tray_changed()
         try:
             w = self._w()
+            if not w.logged_in():
+                # Nothing can be fetched until the person logs in again: say so once,
+                # not on every check, and let the tray menu offer the way back in.
+                self._expired = True
+                if not state.expired_notified:
+                    platform_tasks.notify("Your Trace login has expired. Open TraceDown and "
+                                          "reconnect to keep downloading new games.")
+                    self._auto_change(lambda s: setattr(s, "expired_notified", True))
+                return {"ran": True, "games": 0, "expired": True}
+            self._expired = False
+            if state.expired_notified:
+                state.expired_notified = False      # here too: this copy is saved again just below
+                self._auto_change(lambda s: setattr(s, "expired_notified", False))
             games, done = w.list_games()
             self._game_cache = {g.id: g for g in games}
             account = w.list_accounts()["active"]
@@ -519,9 +588,11 @@ class Api:
             if saved:
                 platform_tasks.notify(
                     f"Automatic download: {saved} new game{'' if saved == 1 else 's'} saved")
+            self._last_check = (datetime.now(), saved)
         finally:
             self._auto_running = False
             self._emit("auto", {"running": False, "text": ""})
+            self._tray_changed()
         return {"ran": True, "games": saved}
 
     def keep_running(self):
@@ -856,7 +927,8 @@ def main():
 
     def check_now():
         threading.Thread(target=api.auto_check, daemon=True).start()
-    api._tray = Tray.start(api.show_window, check_now, api.quit_app, visible=state.enabled)
+    api._tray = Tray.start(api.show_window, check_now, api.quit_app, visible=state.enabled,
+                           status=api.tray_status, expired=lambda: api._expired)
     instance.listen(api.show_window)
     if state.enabled:
         api._schedule_auto(first_in_secs=90)
