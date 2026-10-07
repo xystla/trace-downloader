@@ -382,6 +382,18 @@ async function attachPlayer(card, id) {
   video.addEventListener("timeupdate", () => movePlayhead(card));
   card._player = player;
   player.show(0);
+  let kept = 0;
+  video.addEventListener("timeupdate", () => {
+    if (Math.abs(video.currentTime - kept) >= 5) { kept = video.currentTime; rememberPosition(id, player); }
+    // Once it has played on a little, "Resumed at…" has said its piece.
+    if (player.resumedAt != null && video.currentTime > player.resumedAt + 10) {
+      player.resumedAt = null;
+      player.note("resume", null);
+    }
+  });
+  video.addEventListener("pause", () => rememberPosition(id, player));
+  player.onShow.push(() => { player.resumedAt = null; player.note("resume", null); });
+  restorePosition(card, id);
   thumb.hidden = true;
   thumb.after(wrap);
 }
@@ -551,6 +563,67 @@ document.addEventListener("keydown", (e) => {
   action(active);
 });
 el("shortcutsClose").onclick = () => el("shortcuts").close();
+
+// ---- where you stopped: kept per game on this computer ----
+// Only the full game is remembered, as which file was playing (0 = the game in
+// one file, 1 or 2 = a half) and how far into it.
+const KEEP_POSITIONS = 200;
+
+function positions() {
+  try { return JSON.parse(localStorage.getItem("positions")) || {}; } catch (e) { return {}; }
+}
+
+function storePositions(all) {
+  const ids = Object.keys(all);
+  if (ids.length > KEEP_POSITIONS) {
+    ids.sort((a, b) => (all[a].at || 0) - (all[b].at || 0))
+      .slice(0, ids.length - KEEP_POSITIONS).forEach((id) => delete all[id]);
+  }
+  try { localStorage.setItem("positions", JSON.stringify(all)); } catch (e) { /* not kept */ }
+}
+
+function forgetPosition(id) {
+  const all = positions();
+  if (!(id in all)) return;
+  delete all[id];
+  storePositions(all);
+}
+
+function rememberPosition(id, player) {
+  const src = player.sources[player.current];
+  const video = player.video;
+  if (!src || !src.full || !video.duration || video.currentTime < 10) return;
+  if (video.duration - video.currentTime < 30) { forgetPosition(id); return; }      // watched to the end
+  const all = positions();
+  all[id] = { half: src.half, t: Math.round(video.currentTime), at: Date.now() };
+  storePositions(all);
+}
+
+// Put the full game back where it was left, paused, and say so.
+function restorePosition(card, id) {
+  const player = card._player;
+  const saved = positions()[id];
+  if (!player || !saved) return;
+  const index = player.sources.findIndex((s) => s.full && s.half === saved.half);
+  if (index < 0) return;
+  const video = player.video;
+  const apply = () => {
+    if (saved.t < 10 || saved.t > video.duration - 30) return;
+    video.currentTime = saved.t;
+    player.resumedAt = saved.t;
+    const where = saved.half ? ` in the ${saved.half === 2 ? "2nd" : "1st"} half` : "";
+    player.note("resume", node("span", null, `Resumed at ${clock(saved.t)}${where}`),
+      labelButton("retry", "Start over", "Play this game from the beginning.", () => {
+        video.currentTime = 0;
+        player.resumedAt = null;
+        forgetPosition(id);
+        player.note("resume", null);
+      }));
+  };
+  if (index !== player.current) player.show(index, apply);
+  else if (video.readyState >= 1) apply();
+  else video.addEventListener("loadedmetadata", apply, { once: true });
+}
 
 // ---- match timeline: when the shots and box entries happened; click to jump there ----
 const MOMENT_WORDS = { "shot": "Shot", "opp-shot": "Opponent shot", "box-entry": "Box entry",
