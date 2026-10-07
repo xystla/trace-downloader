@@ -3,6 +3,14 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.5.0
+- Full-game downloads now carry on where they stopped. Stop one, lose your connection, close the app or let the computer sleep, and Resume picks up from there instead of starting over. Discard throws away a download you no longer want.
+- Downloads show how long is left, for the game that is running and for the games waiting in line.
+- TraceDown checks that a game will fit before downloading it, and the Downloads page shows how much room is free. Automatic downloads pause and tell you once when the disk is full.
+- Choose what automatic downloads fetch for each new game (the full game, highlights, player recaps) and how often they check: every hour up to once a day.
+- Move downloads up and down the waiting line.
+- Fixed a retry after a failed second half downloading the first half again as an extra file.
+
 ## 1.4.2
 - Fixed the Mac app opening to an empty window after updating: it now downloads the newer video engine it needs instead of trying to use the old one.
 
