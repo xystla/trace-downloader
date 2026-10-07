@@ -2051,6 +2051,8 @@ window.onPy = (event, p) => {
     el("updateNote").textContent = `Downloading the update… ${p.percent}%`;
     return;
   }
+  // A background check found the login has lapsed: ask afresh, which brings up the Reconnect banner.
+  if (event === "login_changed") { refresh(); return; }
   if (event === "auto") {
     // An automatic download takes its turn like any other: the line waits for it.
     autoBusy = !!p.running;

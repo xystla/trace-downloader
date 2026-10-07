@@ -509,8 +509,9 @@ def auto(everything, monkeypatch, tmp_path):
     monkeypatch.setattr(app.platform_tasks, "login_enable", lambda: api.system.append("login on"))
     monkeypatch.setattr(app.platform_tasks, "login_disable", lambda: api.system.append("login off"))
     api._worker.list_accounts = lambda: {"active": "demo", "accounts": [{"id": "demo", "label": "Demo"}]}
-    api._schedule_auto = lambda: api.system.append("timer set")
+    api._schedule_auto = lambda first_in_secs=None: api.system.append("timer set")
     api._worker.logged_in = lambda: True
+    api._worker.login_detail = lambda: "not logged in"       # what Trace answers when the login has lapsed
     return api
 
 
@@ -1065,3 +1066,53 @@ def test_a_copy_that_cannot_be_made_says_so(api, monkeypatch):
     for junk in ("", "not a picture", "data:image/png;base64,@@@", "data:image/jpeg;base64,AAAA", None):
         assert api.copy_image(junk) == {"ok": False, "error": "There was no picture to copy."}
     assert api.copy_text("") == {"ok": False, "error": "There was nothing to copy."}
+
+
+def test_being_offline_is_not_reported_as_an_expired_login(auto, tmp_path):
+    # Trace can't be reached (no Wi-Fi after waking, Trace itself down): that says
+    # nothing about the login, so no notification and no "reconnect".
+    _config(auto, tmp_path)
+    _new_game(auto)
+    auto._worker.logged_in = lambda: False
+    auto._worker.list_games = lambda: pytest.fail("nothing to list")
+    for detail in ("api unreachable: ConnectError('offline')", "api http 502 (non-JSON)",
+                   "navigation failed: TimeoutError()", "no account / no team URL"):
+        auto._worker.login_detail = lambda detail=detail: detail
+        assert auto.auto_check() == {"ran": False, "games": 0}       # "didn't run": it looks again in ten minutes
+    assert auto.notes == [] and not auto.tray_status().startswith("Trace login expired")
+    assert [event for event, _ in auto.events if event == "login_changed"] == []
+
+
+def test_the_window_is_told_when_the_login_expires_so_it_can_offer_reconnect(auto, tmp_path):
+    # The window may have been open (hidden) for weeks, still saying "Logged in".
+    _config(auto, tmp_path)
+    auto.set_auto(True)
+    auto._worker.logged_in = lambda: False
+    auto.auto_check()
+    assert ("login_changed", {}) in auto.events
+
+
+def test_reconnecting_looks_for_the_missed_games_soon_not_hours_later(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto.set_auto(True)
+    auto._worker.logged_in = lambda: False
+    auto.auto_check()
+    soon = []
+    auto._schedule_auto = lambda first_in_secs=None: soon.append(first_in_secs)
+    auto._worker.logged_in = lambda: True
+    auto.get_status()
+    auto.get_status()                                            # only on the change, not on every look
+    assert soon == [60]
+
+
+def test_the_tray_menu_is_only_redrawn_when_what_it_says_changes(auto, tmp_path):
+    _config(auto, tmp_path)
+    redrawn = []
+    auto._tray = SimpleNamespace(refresh=lambda: redrawn.append(auto.tray_status()), set_visible=lambda on: None)
+    auto._tray_changed()
+    auto._tray_changed()
+    assert redrawn == []                                         # nothing to say yet, nothing changed
+    auto._downloading_now = ("vs Rovers", 40)
+    auto._tray_changed()
+    auto._tray_changed()
+    assert redrawn == ["Downloading vs Rovers · 40%"]

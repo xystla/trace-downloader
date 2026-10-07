@@ -29,6 +29,9 @@ from trace_grabber.naming import custom_stem
 WEB = paths.resource_dir() / "gui" / "web"
 DATA = paths.data_dir()
 LAST_RUN = DATA / "last_run.json"
+# What a login check says when it couldn't tell (Trace not reached, no account
+# yet): no reason to say the login has expired.
+LOGIN_UNSURE = ("api unreachable", "api http", "navigation failed", "no account")
 INTERVALS = (1, 3, 6, 12, 24)      # hours between automatic checks offered in Settings
 
 
@@ -58,6 +61,7 @@ class Api:
         self._downloading_now = None     # (game name, percent) while a full game downloads
         self._last_check = None          # (when, games saved) of the last automatic check
         self._expired = False            # a background check found the Trace login had lapsed
+        self._tray_shown = ("", False)   # what the tray menu last drew: (status line, expired)
 
     def _w(self):
         if self._worker is None:
@@ -75,6 +79,8 @@ class Api:
         if logged_in and self._expired:          # reconnected in the window
             self._expired = False
             self._tray_changed()
+            if autodl.load(DATA).enabled:
+                self._schedule_auto(first_in_secs=60)     # fetch what was missed now, not hours from now
         return {
             "logged_in": logged_in,
             "has_account": has_account,
@@ -138,8 +144,13 @@ class Api:
                            self._expired, self._last_check)
 
     def _tray_changed(self):
-        if self._tray:
-            self._tray.refresh()
+        """Redraw the tray menu if what it says has changed. Only then: rebuilding
+        a menu that is open at that moment can make it vanish or mis-aim a click."""
+        showing = (self.tray_status(), self._expired)
+        if not self._tray or showing == self._tray_shown:
+            return
+        self._tray_shown = showing
+        self._tray.refresh()
 
     def _saved(self, result):
         return bool(result.get("ok") and result.get("files")) and not self._w().cancelled()
@@ -535,9 +546,14 @@ class Api:
         try:
             w = self._w()
             if not w.logged_in():
+                if (w.login_detail() or "").startswith(LOGIN_UNSURE):
+                    # Trace couldn't be asked (offline, Trace down): that says nothing
+                    # about the login. Count the check as not run, so it looks again soon.
+                    return {"ran": False, "games": 0}
                 # Nothing can be fetched until the person logs in again: say so once,
                 # not on every check, and let the tray menu offer the way back in.
                 self._expired = True
+                self._emit("login_changed", {})     # the window may still say "Logged in"
                 if not state.expired_notified:
                     platform_tasks.notify("Your Trace login has expired. Open TraceDown and "
                                           "reconnect to keep downloading new games.")
