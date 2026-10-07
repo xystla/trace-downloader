@@ -1045,6 +1045,73 @@ async function appendGameStats(box, g) {
   fillGameStats(section, game);
 }
 
+// ---- copying to the clipboard: a game's stats as text, its heat map as a picture ----
+// A button that says how the copy went for a moment, then goes back to its name.
+function copyButton(text, title, copy) {
+  const b = labelButton("copy", text, title, async () => {
+    b.disabled = true;
+    let res;
+    try { res = await copy(); } catch (e) { res = { ok: false, error: (e && e.message) || String(e) }; }
+    b.disabled = false;
+    const ok = !!(res && res.ok);
+    b.lastChild.textContent = ok ? "Copied" : "Couldn't copy";
+    b.title = ok ? title : (res && res.error) || title;
+    setTimeout(() => { b.lastChild.textContent = text; b.title = title; }, 1800);
+  });
+  return b;
+}
+
+// One game's numbers as plain text, to paste into a message: a headline, the
+// whole game on one line, then the by-half table (tabs between its columns).
+function statsText(game) {
+  const listed = gameByNumber(game.game_id);
+  const st = game.whole;
+  const headline = [`vs ${game.opponent || (listed && (listed.opponent || listed.title)) || "opponent"}`,
+    (listed && listed.date_label) || game.date,
+    game.score ? `${game.score.us}–${game.score.them}` : ""].filter(Boolean).join(" · ");
+  const whole = [`Shots ${st.shots_us} (opponent ${st.shots_them})`,
+    `Ball-control ${(st.poss_secs_us / 60).toFixed(1)} min`, `Passes ${st.passes_us}`,
+    `Box entries ${st.box_us}` + (st.box_them == null ? "" : ` (opponent ${st.box_them})`),
+    `Attacking-third entries ${st.att_third_us}`, `Packing ${st.packing_us}`].join(" · ");
+  const table = [["", "1st half", "2nd half", "Whole"],
+    ...HALF_ROWS.map(([label, pick]) => [label, pick(game.first), pick(game.second), pick(game.whole)])]
+    .map((row) => row.join("\t")).join("\n");
+  return `${headline}\nWhole game: ${whole}\n\n${table}`;
+}
+
+// A drawing on the page as a PNG (a data: address), three times its drawn size.
+// The page's style sheet colours the drawing, and a picture on its own has no
+// style sheet, so the colours are written into the copy first.
+function svgToPng(svg, scale = 3) {
+  const copy = svg.cloneNode(true);
+  const from = [svg, ...svg.querySelectorAll("*")];
+  const to = [copy, ...copy.querySelectorAll("*")];
+  from.forEach((el0, i) => {
+    const style = getComputedStyle(el0);
+    for (const prop of ["fill", "stroke", "stroke-width", "opacity", "fill-opacity", "stroke-opacity", "color"]) {
+      to[i].style.setProperty(prop, style.getPropertyValue(prop));
+    }
+  });
+  const box = svg.viewBox.baseVal;
+  const width = Math.round(box.width * scale);
+  const height = Math.round(box.height * scale);
+  copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  copy.setAttribute("width", width);
+  copy.setAttribute("height", height);
+  return new Promise((resolve, reject) => {
+    const picture = new Image();
+    picture.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(picture, 0, 0, width, height);
+      try { resolve(canvas.toDataURL("image/png")); } catch (e) { reject(new Error("The picture couldn't be made.")); }
+    };
+    picture.onerror = () => reject(new Error("The picture couldn't be made."));
+    picture.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(copy));
+  });
+}
+
 // ---- heat map: where our identified outfield players spent the game ----
 const heatMaps = new Map();      // game id -> heat map, once loaded
 const heatFailed = new Map();    // game id -> why it couldn't be loaded, so it isn't retried on every visit
@@ -1088,7 +1155,9 @@ function heatCard(g, seg) {
     body.replaceChildren(pitch, key, node("p", "caption",
       `Where the ${n} outfield player${n === 1 ? "" : "s"} Trace identified on your team spent ${when}. `
       + "The goalkeeper is left out, and both halves are turned the same way."
-      + (heat[seg] ? "" : " Trace has no tracking for this half, so the whole game is shown.")));
+      + (heat[seg] ? "" : " Trace has no tracking for this half, so the whole game is shown.")),
+    copyButton("Copy image", "Copy the heat map as a picture, ready to paste.",
+      async () => api().copy_image(await svgToPng(pitch.querySelector("svg")))));
   };
   const load = async () => {
     const bar = node("div", "mini sliding");
@@ -1138,7 +1207,8 @@ function fillGameStats(section, game) {
     b.onclick = () => { _seg = seg; fillGameStats(section, game); };
     toggle.append(b);
   });
-  head.append(node("h2", null, "Game analytics"), node("span", "spacer"), toggle);
+  head.append(node("h2", null, "Game analytics"), node("span", "spacer"),
+    copyButton("Copy stats", "Copy this game's stats as text, ready to paste.", () => api().copy_text(statsText(game))), toggle);
   const tiles = node("div", "tiles");
   renderTiles(st, null, tiles);
   const territory = node("div", "card");
@@ -2316,18 +2386,19 @@ function renderTrend() {
   });
 }
 
+const HALF_ROWS = [
+  ["Shots", (st) => st.shots_us], ["Opponent shots", (st) => st.shots_them],
+  ["Ball-control (min)", (st) => (st.poss_secs_us / 60).toFixed(1)],
+  ["Passes", (st) => st.passes_us], ["Box entries", (st) => st.box_us],
+  ["Opponent box entries", (st) => st.box_them],
+  ["Attacking-third entries", (st) => st.att_third_us], ["Packing", (st) => st.packing_us],
+  ["Tracked sequences", (st) => st.sequences_us],
+];
+
 function renderHalves(game, target) {
-  const rows = [
-    ["Shots", (st) => st.shots_us], ["Opponent shots", (st) => st.shots_them],
-    ["Ball-control (min)", (st) => (st.poss_secs_us / 60).toFixed(1)],
-    ["Passes", (st) => st.passes_us], ["Box entries", (st) => st.box_us],
-    ["Opponent box entries", (st) => st.box_them],
-    ["Attacking-third entries", (st) => st.att_third_us], ["Packing", (st) => st.packing_us],
-    ["Tracked sequences", (st) => st.sequences_us],
-  ];
   const tbody = target || document.querySelector("#halves-table tbody");
   tbody.replaceChildren();
-  for (const [label, pick] of rows) {
+  for (const [label, pick] of HALF_ROWS) {
     const tr = document.createElement("tr");
     for (const text of [label, pick(game.first), pick(game.second), pick(game.whole)]) {
       const td = document.createElement("td");

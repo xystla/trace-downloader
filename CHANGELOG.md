@@ -20,6 +20,9 @@ first time it opens after updating, and the same list becomes the release notes.
 - TraceDown notices when a saved video has been moved, renamed or deleted. Download it again, or use Find it… to show where it is now; it is left where you put it.
 - Renaming a video inside a game's folder no longer loses it.
 - Choose how full-game videos are named, from the date, your team and the opponent.
+- A notification when a background check finds your Trace login has expired, so automatic downloads don't stop without you knowing.
+- The menu-bar and tray menu now says what TraceDown is doing: the game it is downloading, or when it last checked and what it found.
+- Copy a game's stats as text, or its heat map as a picture, to paste into a message.
 
 ## 1.4.2
 - Fixed the Mac app opening to an empty window after updating: it now downloads the newer video engine it needs instead of trying to use the old one.
