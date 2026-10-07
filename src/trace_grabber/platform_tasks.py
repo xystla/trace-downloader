@@ -186,3 +186,50 @@ def notify(message: str) -> None:
                            **tools.subprocess_flags())
     except Exception:
         pass
+
+
+# ---- the Trash: removing a game is never a deletion ----
+_WIN_RECYCLE = (
+    "Add-Type -AssemblyName Microsoft.VisualBasic; "
+    "$p = $env:TRACEDOWN_PATH; "
+    "if (Test-Path -LiteralPath $p -PathType Container) "
+    "{ [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } "
+    "else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }"
+)
+
+
+def bin_name() -> str:
+    """What this computer calls the place removed files go."""
+    return "Recycle Bin" if sys.platform == "win32" else "Trash"
+
+
+def _trash_one(path: Path) -> None:
+    if sys.platform == "darwin":
+        from Foundation import NSFileManager, NSURL
+        ok, _, error = NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
+            NSURL.fileURLWithPath_(str(path)), None, None)
+        if not ok:
+            raise RuntimeError(str(error or "the Trash refused it"))
+    elif sys.platform == "win32":
+        done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _WIN_RECYCLE],
+                              capture_output=True, text=True, check=False,
+                              env={**os.environ, "TRACEDOWN_PATH": str(path)}, **tools.subprocess_flags())
+        if done.returncode != 0:
+            raise RuntimeError((done.stderr or "").strip()[-200:] or "the Recycle Bin refused it")
+    else:
+        done = subprocess.run(["gio", "trash", str(path)], capture_output=True, text=True, check=False)
+        if done.returncode != 0:
+            raise RuntimeError((done.stderr or "").strip()[-200:] or "the Trash refused it")
+
+
+def trash(paths) -> None:
+    """Move files and folders to the Trash (Recycle Bin on Windows), where they
+    can be put back. Raises RuntimeError naming what couldn't be moved; anything
+    already gone is skipped."""
+    for path in (Path(p) for p in paths):
+        if not path.exists():
+            continue
+        try:
+            _trash_one(path)
+        except Exception as error:
+            raise RuntimeError(f"Couldn't move {path.name} to the {bin_name()}: {error}") from error

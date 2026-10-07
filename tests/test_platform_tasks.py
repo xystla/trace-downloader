@@ -134,3 +134,61 @@ def test_start_at_login_on_windows_uses_the_users_run_key(monkeypatch):
     assert add[:2] == ["reg", "add"] and "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" in add
     assert add[add.index("/d") + 1] == '"C:\\Users\\Jo Bloggs\\AppData\\Local\\Programs\\TraceDown\\TraceDown.exe" --background'
     assert delete[:2] == ["reg", "delete"] and query[:2] == ["reg", "query"]
+
+
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+
+def _fake_mac_file_manager(monkeypatch, pt, answer):
+    asked = []
+    class Manager:
+        def trashItemAtURL_resultingItemURL_error_(self, url, resulting, error):
+            asked.append(url)
+            return answer
+    monkeypatch.setitem(sys.modules, "Foundation", SimpleNamespace(
+        NSFileManager=SimpleNamespace(defaultManager=lambda: Manager()),
+        NSURL=SimpleNamespace(fileURLWithPath_=lambda path: "url:" + path)))
+    monkeypatch.setattr(pt.sys, "platform", "darwin")
+    return asked
+
+
+def test_removing_goes_to_the_mac_trash_not_to_deletion(monkeypatch, tmp_path):
+    from trace_grabber import platform_tasks as pt
+    asked = _fake_mac_file_manager(monkeypatch, pt, (True, None, None))
+    video = tmp_path / "game.mp4"
+    video.write_bytes(b"x")
+    pt.trash([video, tmp_path / "already gone.mp4"])
+    assert asked == ["url:" + str(video)] and video.exists()        # the fake moved nothing; trash() itself never deletes
+    assert pt.bin_name() == "Trash"
+
+
+def test_a_trash_that_refuses_is_an_error_naming_the_file(monkeypatch, tmp_path):
+    from trace_grabber import platform_tasks as pt
+    _fake_mac_file_manager(monkeypatch, pt, (False, None, "the volume has no Trash"))
+    video = tmp_path / "game.mp4"
+    video.write_bytes(b"x")
+    with pytest.raises(RuntimeError, match="Couldn't move game.mp4 to the Trash"):
+        pt.trash([video])
+
+
+def test_removing_goes_to_the_windows_recycle_bin(monkeypatch, tmp_path):
+    from trace_grabber import platform_tasks as pt
+    monkeypatch.setattr(pt.sys, "platform", "win32")
+    monkeypatch.setattr(pt.tools, "subprocess_flags", lambda: {})
+    runs = []
+    def run(cmd, **kwargs):
+        runs.append((cmd, kwargs["env"]["TRACEDOWN_PATH"]))
+        return SimpleNamespace(returncode=0, stderr="")
+    monkeypatch.setattr(pt.subprocess, "run", run)
+    folder = tmp_path / "2026-06-04_vs-rovers"
+    folder.mkdir()
+    pt.trash([folder])
+    (cmd, path), = runs
+    assert cmd[0] == "powershell" and "SendToRecycleBin" in cmd[-1] and path == str(folder)
+    assert pt.bin_name() == "Recycle Bin"
+    monkeypatch.setattr(pt.subprocess, "run", lambda cmd, **kwargs: SimpleNamespace(returncode=1, stderr="denied"))
+    with pytest.raises(RuntimeError, match="Recycle Bin"):
+        pt.trash([folder])
