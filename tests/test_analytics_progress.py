@@ -213,7 +213,7 @@ def test_highlights_already_saved_are_not_cut_or_fetched_again(trace, tmp_path, 
     folder = tmp_path / "2026-06-04_vs-rovers" / "Highlights"
     folder.mkdir(parents=True)
     (folder / "01_half1_04m55s_shot.mp4").write_bytes(b"clip")
-    trace.worker._game_files = lambda date, opponent: [str(video)]
+    trace.worker._game_files = lambda date, opponent, game_id=None: [str(video)]
     def must_not_run(*args, **kwargs):
         raise AssertionError("should not fetch or cut again")
     monkeypatch.setattr(worker.analytics_sync, "moments_for", must_not_run)
@@ -340,7 +340,7 @@ def test_cutting_highlights_also_makes_the_reel(trace, tmp_path, monkeypatch):
     worker = _recap_worker(trace, tmp_path, monkeypatch)
     video = tmp_path / "2026-06-04_vs-rovers" / "Full Game" / "2026-06-04_vs-rovers.mp4"
     target = tmp_path / "2026-06-04_vs-rovers" / "Highlights"
-    trace.worker._game_files = lambda date, opponent: [str(video)]
+    trace.worker._game_files = lambda date, opponent, game_id=None: [str(video)]
     monkeypatch.setattr(worker.analytics_sync, "moments_for",
                         lambda *args, **kwargs: (SimpleNamespace(our_side="home"), ["moments"]))
     monkeypatch.setattr(worker.highlights, "export", lambda moments, side, files, folder: (folder, 4))
@@ -355,7 +355,7 @@ def test_clips_cut_before_reels_existed_get_one_when_asked_again(trace, tmp_path
     folder = tmp_path / "2026-06-04_vs-rovers" / "Highlights"
     folder.mkdir(parents=True)
     (folder / "01_half1_04m55s_shot.mp4").write_bytes(b"clip")
-    trace.worker._game_files = lambda date, opponent: ["video.mp4"]
+    trace.worker._game_files = lambda date, opponent, game_id=None: ["video.mp4"]
     reels = []
     monkeypatch.setattr(worker.highlights, "build_reel", reels.append)
     assert trace.worker._export_highlights("demo-1", "2026-06-04", "Rovers") == (folder, 1, True)
@@ -367,7 +367,7 @@ def test_highlights_come_straight_from_trace_when_the_game_is_not_downloaded(tra
     worker = _recap_worker(trace, tmp_path, monkeypatch)
     trace.worker._cfg.quality = "highest"
     trace.worker._cancel = __import__("threading").Event()
-    trace.worker._game_files = lambda date, opponent: []                  # no video saved
+    trace.worker._game_files = lambda date, opponent, game_id=None: []                  # no video saved
     trace.worker._resolve_masters = lambda team_id, game_id: [f"https://t/{team_id}/h1.m3u8", "https://t/h2.m3u8"]
     trace.worker._ctx = SimpleNamespace(request=SimpleNamespace(
         get=lambda url, **kw: SimpleNamespace(text=lambda: "#EXTINF:2.0,\nseg0.ts\n")))

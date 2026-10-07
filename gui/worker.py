@@ -12,16 +12,16 @@ from trace_grabber.config import load_config
 from trace_grabber import accounts as accts_mod
 from trace_grabber import analytics_sync
 from trace_grabber import bookmarks as bookmark_store
-from trace_grabber import analytics, highlights, pieces, radar, recaps, segments, space
+from trace_grabber import analytics, found, highlights, library, pieces, radar, recaps, segments, space
 from trace_grabber.analytics_sync import AnalyticsResult
-from trace_grabber import paths
+from trace_grabber import paths, platform_tasks
 from trace_grabber.platform_tasks import keep_awake
 from trace_grabber.session import (is_logged_in, login_status, api_logged_in,
                                     discover_teams, cookie_headers)
 from trace_grabber.games import list_games
 from trace_grabber import streams, quality
-from trace_grabber.naming import game_folders, half_path, saved_files
-from trace_grabber.state import load_state, mark_done
+from trace_grabber.naming import custom_stem, game_folders, half_path, saved_files
+from trace_grabber.state import load_state, mark_done, unmark
 from trace_grabber.progress import Rate, percent
 from trace_grabber.selectors import BASE_URL
 
@@ -129,7 +129,7 @@ class Worker:
         # The page says which file by name, and it must be one of this game's own:
         # going by "first" or "second" picks the wrong video when a half is missing
         # or an older copy of one is lying beside it.
-        files = [Path(f) for f in self._game_files(date or game_id, opponent or None)]
+        files = [Path(f) for f in self._game_files(date or game_id, opponent or None, game_id)]
         source = next((f for f in files if f.name == name), None)
         if source is None:
             raise RuntimeError("Couldn't find the video file. It may have been moved or renamed.")
@@ -181,7 +181,8 @@ class Worker:
         return self.submit(lambda: self._reload_config())
 
     def game_files(self, game_id, date, opponent):
-        return self.submit(lambda: self._game_files(date or game_id, opponent or None))
+        # Files only, so it answers at once: Watch Game must not wait behind a download.
+        return self._game_files(date or game_id, opponent or None, game_id)
 
     def export_highlights(self, game_id, date, opponent, on_progress=None):
         return self.submit(lambda: self._export_highlights(game_id, date, opponent, on_progress))
@@ -213,6 +214,68 @@ class Worker:
 
     def compute_analytics(self, on_progress=None, refresh=False):
         return self.submit(lambda: self._compute_analytics(on_progress, refresh))
+
+    # ---- the library: what is on disk, what has gone missing, removing a game ----
+    def _found_path(self):
+        return DATA / "found" / f"{self._active().id}.json"
+
+    def team_label(self):
+        acct = self._active()
+        return getattr(acct, "label", "") if acct else ""
+
+    def missing(self, games, done):
+        """Ids of games on the saved list whose video can't be found: not in the
+        library, and not where the person last said it was."""
+        if not self._active():
+            return set()
+        return {g.id for g in games
+                if g.id in done and not self._game_files(g.date or g.id, g.opponent or None, g.id)}
+
+    def set_found(self, game_id, files):
+        """Remember where the person says a game's video is now. It stays there."""
+        acct = self._active()
+        found.remember(self._found_path(), game_id, files)
+        mark_done(acct.state_path(DATA), game_id)
+        return True
+
+    def storage(self, games):
+        """What each listed game takes in the team's folder, largest first, with
+        the folder's whole size, what in it belongs to no listed game, and the
+        disk's free space."""
+        acct = self._active()
+        if not acct:
+            return {"rows": [], "used": 0, "other": 0, "free": space.free(self._cfg.output_dir)}
+        root = acct.output_dir(self._cfg.output_dir)
+        done = load_state(acct.state_path(DATA))
+        rows = []
+        for g in games:
+            videos = [Path(f) for f in self._game_files(g.date or g.id, g.opponent or None, g.id)]
+            use = library.usage(self._folders(g.id, g.date, g.opponent), videos, root)
+            if use["total"] or use["elsewhere"]:
+                rows.append({"id": g.id, "title": f"vs {g.opponent or g.title}", "date": g.date,
+                             "saved": g.id in done, **use})
+        rows.sort(key=lambda row: row["total"], reverse=True)
+        used = library.size_of(root)
+        return {"rows": rows, "used": used, "other": max(0, used - sum(row["total"] for row in rows)),
+                "free": space.free(root)}
+
+    def remove_game(self, game_id, date, opponent, everything):
+        """Move a game's full video (or, with `everything`, all of the game) to
+        the Trash and take it off the saved list; returns the bytes moved. A video
+        the person found outside the library is left where it is and only
+        forgotten. Raises RuntimeError with a message for the person; if the Trash
+        refuses, nothing is forgotten."""
+        if getattr(self, "_downloading", None) == game_id:
+            raise RuntimeError("This game is downloading. Stop the download first.")
+        acct = self._active()
+        root = acct.output_dir(self._cfg.output_dir)
+        videos = [Path(f) for f in self._game_files(date or game_id, opponent or None, game_id)]
+        paths = library.targets(self._folders(game_id, date, opponent), videos, root, everything)
+        moved = sum(library.size_of(p) for p in paths)
+        platform_tasks.trash(paths)
+        unmark(acct.state_path(DATA), game_id)
+        found.forget(self._found_path(), game_id)
+        return moved
 
     # ---- thread internals ----
 
@@ -302,12 +365,13 @@ class Worker:
         LOG.info("download %s halves=%s acct=%s", game_id, len(masters), acct.id)
         out_base = self._folders(game_id, date, opponent).full_game
         chosen = self._cfg.quality
+        stem = self._stem(date or game_id, opponent or None)
         halves = []                 # (number, where it goes, its pieces, estimated bytes)
         for number, murl in enumerate(masters, 1):
             request = self._ctx.request
             variant, bandwidth = quality.pick_variant(request.get(murl).text(), murl, chosen)
             parts = segments.parse(request.get(variant).text(), variant)
-            dest = self._half_dest(out_base, game_id, date, number, opponent)
+            dest = self._half_dest(out_base, game_id, date, number, opponent, stem)
             halves.append((number, dest, parts,
                            space.estimate(bandwidth, sum(seconds for seconds, _ in parts))))
         # A half counts as done only if this same download (this game, this quality)
@@ -363,7 +427,7 @@ class Worker:
                 and len(half_files) == 2):
             from trace_grabber import combine as _combine
             from trace_grabber.naming import combined_path
-            out = combined_path(out_base, date or game_id, opponent or None)
+            out = combined_path(out_base, date or game_id, opponent or None, stem)
             try:
                 _combine.combine(half_files, out)
                 for h in half_files:
@@ -380,13 +444,23 @@ class Worker:
                                              videos_dir=self._videos_dir())
         return saved
 
+    def _stem(self, date, opponent):
+        """The person's own name for a game's video (Settings), or None for the built-in one."""
+        return custom_stem(getattr(self._cfg, "file_name", ""), date, opponent, self.team_label())
+
     @staticmethod
-    def _half_dest(out_base, game_id, date, number, opponent):
+    def _half_dest(out_base, game_id, date, number, opponent, stem=None):
         """Where a half of this game goes. Two games on one day against the same
         opponent share a folder and a name, and an older version may have left a
         video there; a name already taken by something that isn't this game's own
-        download is skipped ('…_half1-2.mp4'), never reused or overwritten."""
-        first = half_path(out_base, date or game_id, number, opponent or None)
+        download is skipped ('…_half1-2.mp4'), never reused or overwritten.
+        `stem` is the person's own file name for the video, if they set one."""
+        default = half_path(out_base, date or game_id, number, opponent or None)
+        first = half_path(out_base, date or game_id, number, opponent or None, stem)
+        # A download begun under another name (the file-name setting was changed
+        # since) carries on where it started.
+        if first != default and pieces.belongs(default, game_id):
+            return default
         candidate, n = first, 1
         while not (pieces.belongs(candidate, game_id)
                    or not (candidate.exists() or pieces.folder_for(candidate).exists())):
@@ -396,7 +470,8 @@ class Worker:
 
     def _half_dests(self, game_id, date, opponent):
         out_base = self._folders(game_id, date, opponent).full_game
-        return [self._half_dest(out_base, game_id, date, number, opponent) for number in (1, 2)]
+        stem = self._stem(date or game_id, opponent or None)
+        return [self._half_dest(out_base, game_id, date, number, opponent, stem) for number in (1, 2)]
 
     def _partials(self, games, done):
         """{game id: share downloaded, 0-1} for games not saved yet that have a
@@ -681,7 +756,7 @@ class Worker:
         if not found:
             raise RuntimeError("Trace has no moments for this game, so there are no highlights to make.")
         meta, moments = found
-        files = self._game_files(date or game_id, opponent or None)
+        files = self._game_files(date or game_id, opponent or None, game_id)
         if files:
             folder, count = highlights.export(moments, meta.our_side, files, folders.highlights)
         else:
@@ -755,7 +830,7 @@ class Worker:
                 if recap_files:
                     break
         number = lambda p: int(p.stem.split("-")[1]) if p.stem.split("-")[1].isdigit() else 10 ** 9
-        return {"full": self._game_files(date or game_id, opponent or None),
+        return {"full": self._game_files(date or game_id, opponent or None, game_id),
                 "reel": str(reel) if reel and reel.exists() else None,
                 "clips": [{"label": highlights.clip_label(p.name), "path": str(p),
                            "half": highlights.clip_place(p.name)[0],
@@ -831,8 +906,13 @@ class Worker:
             self._proc = None
         return str(dest)
 
-    def _game_files(self, date, opponent):
+    def _game_files(self, date, opponent, game_id=None):
+        """A game's full-game video files: those in the library, else (given the
+        game's id) the ones the person found elsewhere that can be reached now."""
         acct = self._active()
         if not acct:
             return []
-        return [str(p) for p in saved_files(acct.output_dir(self._cfg.output_dir), date, opponent)]
+        files = saved_files(acct.output_dir(self._cfg.output_dir), date, opponent)
+        if not files and game_id:
+            files = found.existing(self._found_path(), game_id)
+        return [str(p) for p in files]
