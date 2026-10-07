@@ -1705,6 +1705,109 @@ async function showFreeSpace() {
   el("dlFree").classList.toggle("warn", !!res.low);
 }
 
+// ---- storage: what each game takes on disk, and removing what you no longer want ----
+function sizeText(n) {
+  if (!n) return "";
+  if (n < 1e9) return Math.max(1, Math.round(n / 1e6)) + " MB";
+  return (n / 1e9).toFixed(n < 1e10 ? 1 : 0) + " GB";
+}
+
+async function loadStorage() {
+  let data;
+  try { data = await api().storage(); } catch (e) { data = { ok: false, error: String(e) }; }
+  const body = document.querySelector("#storageTable tbody");
+  const foot = document.querySelector("#storageTable tfoot");
+  if (!data || !data.ok) {
+    el("storageSummary").textContent = "Couldn't measure the library" + (data && data.error ? ": " + data.error : ".");
+    el("storageCard").hidden = true;
+    el("storageEmpty").hidden = true;
+    return;
+  }
+  el("storageSummary").textContent =
+    `TraceDown's games take ${sizeText(data.used) || "no space"} here. ${sizeText(data.free) || "Nothing"} is free on this disk.`;
+  body.replaceChildren(...data.rows.map((row) => storageRow(row, data.bin)));
+  foot.replaceChildren();
+  const other = data.other > 5e6;          // a few stray megabytes aren't worth a line
+  if (other) {
+    const tr = document.createElement("tr");
+    const label = node("td", null, "Other files in this folder");
+    label.colSpan = 5;
+    tr.append(label, node("td", null, sizeText(data.other)), node("td"));
+    foot.append(tr);
+  }
+  el("storageCard").hidden = data.rows.length === 0 && !other;
+  el("storageEmpty").hidden = data.rows.length > 0 || other;
+}
+
+function storageRow(row, bin) {
+  const tr = document.createElement("tr");
+  const name = node("td", "st-game");
+  name.append(node("b", null, row.title), node("span", "caption", row.date || ""));
+  const full = [sizeText(row.full), row.unfinished ? sizeText(row.unfinished) + " unfinished" : "",
+    row.elsewhere ? "elsewhere" : ""].filter(Boolean).join(" + ");
+  const actions = node("div", "st-actions");      // in a box of their own: a table cell laid out as a row breaks the row's line
+  const last = node("td");
+  last.append(actions);
+  if (row.unfinished && !row.saved) {
+    actions.append(labelButton("x", "Discard", "Delete what was downloaded of this game so far.",
+      async () => { await discardDownload(row.id); loadStorage(); }));
+  }
+  if (row.full || row.elsewhere) {
+    actions.append(labelButton("x", "Remove full game", row.elsewhere && !row.full
+      ? "Forget where this game's video is. The video itself is left where it is."
+      : `Move the video to the ${bin}. Highlights, recaps, clips and bookmarks are kept.`,
+    () => askRemove(row, false, bin)));
+  }
+  actions.append(
+    labelButton("x", "Remove everything", `Move everything saved for this game to the ${bin}.`, () => askRemove(row, true, bin)),
+    iconButton("games", "Go to this game", () => { showView("games"); openSingle(row.id); }));
+  tr.append(name, node("td", null, full), node("td", null, sizeText(row.highlights)), node("td", null, sizeText(row.recaps)),
+    node("td", null, sizeText(row.mine)), node("td", "st-total", sizeText(row.total)), last);
+  return tr;
+}
+
+// Nothing is removed without saying what goes, how big it is and what stays.
+function askRemove(row, everything, bin) {
+  el("removeTitle").textContent = everything ? `Remove everything for ${row.title}?` : `Remove the full game ${row.title}?`;
+  el("removeText").textContent = everything
+    ? `The game's whole folder (${sizeText(row.total) || "nothing much"}) is moved to the ${bin}: the video, highlights, player recaps, your clips and your bookmarks.`
+      + (row.elsewhere ? " The video you found elsewhere is left where it is." : "") + " It can be downloaded again."
+    : row.elsewhere && !row.full
+      ? "The video is left where it is. TraceDown only forgets where it was, and the game goes back to not downloaded."
+      : `The video (${sizeText(row.full)}) is moved to the ${bin}. Highlights, player recaps, your clips, bookmarks and stats are kept, and the game can be downloaded again.`;
+  const go = el("removeGo");
+  go.textContent = `Move to ${bin}`;
+  go.disabled = false;
+  go.onclick = async () => {
+    go.disabled = true;
+    let res;
+    try { res = await api().remove_game(row.id, everything); } catch (e) { res = { ok: false, error: String(e) }; }
+    el("confirmRemove").close();
+    const ok = !!(res && res.ok);
+    const note = el("storageNote");
+    note.hidden = false;
+    note.classList.toggle("warn", !ok);
+    note.textContent = !ok ? (res && res.error) || "It couldn't be removed."
+      : res.freed ? `Moved to the ${res.bin}. Empty it to free ${sizeText(res.freed)}.` : "Done.";
+    if (ok) forgetSaved(row.id);
+    loadStorage();
+  };
+  el("confirmRemove").showModal();
+}
+
+// A game whose video was removed is "not downloaded" again, here and on its card.
+function forgetSaved(id) {
+  const g = allGames.find((x) => x.id === id);
+  if (g) g.state = "new";
+  gameState.set(id, "new");
+  partial.delete(id);
+  gamePercent.delete(id);
+  renderGameList();
+}
+
+el("removeCancel").onclick = () => el("confirmRemove").close();
+el("storageRefresh").onclick = () => { el("storageNote").hidden = true; loadStorage(); };
+
 async function pump() {
   if (autoBusy || jobs.some((j) => j.state === "running")) return;
   const job = jobs.find((j) => j.state === "waiting");
@@ -1972,7 +2075,7 @@ el("connectCancel").onclick = async () => {
 el("openFolder").onclick = () => api().open_folder();
 
 // ---- sidebar navigation ----
-const VIEWS = { games: "games-view", analytics: "analytics", downloads: "downloads", settings: "settings" };
+const VIEWS = { games: "games-view", analytics: "analytics", downloads: "downloads", storage: "storage", settings: "settings" };
 let analyticsLoaded = false;
 function showView(name) {
   Object.entries(VIEWS).forEach(([key, id]) => { el(id).hidden = key !== name; });
@@ -1981,6 +2084,7 @@ function showView(name) {
   if (name === "analytics") renderSeasonTop();
   if (name === "analytics" && !analyticsLoaded) loadAnalytics();
   if (name === "downloads") showFreeSpace();
+  if (name === "storage") loadStorage();
 }
 document.querySelectorAll("#nav button").forEach((b) => {
   b.onclick = () => {
