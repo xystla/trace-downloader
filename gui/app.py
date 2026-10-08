@@ -395,7 +395,8 @@ class Api:
                 "score": score_view(g), "layout": self._bug_layout(opened["project"]),
                 "fonts": [{"key": key, "label": label, "file": file} for key, (label, file) in scorebug.FONTS.items()],
                 "sizes": list(scorebug.SIZES),
-                "designs": [{"key": key, "label": label} for key, label in scorebug.DESIGNS.items()]}
+                "designs": [{"key": key, "label": label} for key, label in scorebug.DESIGNS.items()],
+                "usual": dict(scorebug.USUAL)}
 
     @staticmethod
     def _bug_layout(project):

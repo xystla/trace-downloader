@@ -2864,6 +2864,7 @@ async function openEditor(id) {
   Object.assign(ed, { id, project: res.project, segments: res.segments, problems: res.problems,
     sources: res.sources, duration: res.duration, layout: res.layout, score: res.score, current: -1 });
   edOfferLooks(res.fonts || [], res.sizes || [0.5, 2], res.designs || []);
+  ed.usual = res.usual || null;
   edListGames();
   const video = el("edVideo");
   if (!edControls) {              // the app's usual play / scrub / speed bar, made once
@@ -2983,6 +2984,25 @@ document.querySelectorAll(".ed-crest").forEach((b) => {
     edSave();
   };
 });
+
+// "Reset" puts every score bug setting back to how the app starts. It asks first
+// (press it twice), since the look is also what the next game would start from.
+let edResetWait = 0;
+el("edBugReset").onclick = () => {
+  const b = el("edBugReset");
+  clearTimeout(edResetWait);
+  if (b.dataset.sure !== "yes") {
+    b.dataset.sure = "yes";
+    b.textContent = "Reset all settings?";
+    edResetWait = setTimeout(() => { b.dataset.sure = ""; b.textContent = "Reset"; }, 4000);
+    return;
+  }
+  b.dataset.sure = "";
+  b.textContent = "Reset";
+  if (!ed.usual) return;
+  ed.project.bug = { ...ed.usual };
+  edSave();
+};
 
 // The score bug's look: the typefaces the app ships, and how far the size goes.
 const edFaces = new Set();
