@@ -2217,7 +2217,7 @@ function showView(name) {
   if (name === "analytics" && !analyticsLoaded) loadAnalytics();
   if (name === "downloads") showFreeSpace();
   if (name === "storage") loadStorage();
-  if (name === "editor") edListGames();
+  if (name === "editor") edShown();
   else if (!el("edVideo").paused) el("edVideo").pause();      // an edit left behind doesn't keep playing
 }
 document.querySelectorAll("#nav button").forEach((b) => {
@@ -2850,6 +2850,17 @@ function edListGames() {
   pick.value = ed.id && saved.some((g) => g.id === ed.id) ? ed.id : "";
 }
 el("edGame").onchange = (e) => { if (e.target.value) openEditor(e.target.value); };
+
+// Coming to the Editor with no game open: open the most recent saved one, so
+// there is something to work on straight away. Another can be chosen from the list.
+function edShown() {
+  edListGames();
+  if (ed.id) return;
+  const saved = allGames.filter((g) => gameState.get(g.id) === "saved");
+  if (!saved.length) return;
+  const latest = saved.reduce((best, g) => (String(g.date || "") > String(best.date || "") ? g : best));
+  openEditor(latest.id);
+}
 
 async function openEditor(id) {
   let res;
