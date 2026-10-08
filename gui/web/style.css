@@ -608,3 +608,5 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-export select { width:auto; margin:0; flex:1; }
 .ed-export .bar { height:6px; }
 .ed-export p { margin:0; font-size:13px; }
+.ed-now { margin:0; font-variant-numeric:tabular-nums; }
+#edTimeline .tl-track { cursor:pointer; }

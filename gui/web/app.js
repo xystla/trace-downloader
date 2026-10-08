@@ -2942,7 +2942,8 @@ function edOutTime(t) {
 function edScoreAt(t) {
   let home = 0, away = 0;
   for (const m of ed.project.marks) {
-    if (m.t > t || edOutTime(m.t) == null) continue;
+    // While the marks are unfinished there are no stretches of play to go by: count every goal so far.
+    if (m.t > t || (!ed.problems.length && edOutTime(m.t) == null)) continue;
     if (m.kind === "goal_home") home += 1;
     if (m.kind === "goal_away") away += 1;
   }
@@ -3037,6 +3038,13 @@ function edDrawTimeline() {
   const head = node("div", "tl-playhead");
   head.hidden = false;
   track.append(head);
+  // The video's own bar only covers the file that is playing; this line is the whole game.
+  track.onclick = (e) => {
+    if (e.target.closest(".tl-mark")) return;
+    const box = track.getBoundingClientRect();
+    edSeek(((e.clientX - box.left) / box.width) * ed.duration);
+  };
+  track.title = "Click to go to that moment of the game.";
   el("edTimeline").replaceChildren(track);
   edMoveHead();
 }
@@ -3044,6 +3052,7 @@ function edDrawTimeline() {
 function edMoveHead() {
   const head = el("edTimeline").querySelector(".tl-playhead");
   if (head) { head.style.display = "block"; head.style.left = Math.min(100, (edClock() / (ed.duration || 1)) * 100) + "%"; }
+  el("edNow").textContent = `${clock(edClock())} / ${clock(ed.duration)}`;      // the game's own clock, both halves joined
 }
 
 edParts.push(edDrawButtons, edDrawMarks, edDrawStatus, edDrawTimeline,
@@ -3069,7 +3078,15 @@ function edPlate(home, away) {
 
 function edDrawBug() {
   const bug = el("edBug");
-  const out = ed.problems.length || !ed.layout ? null : edOutTime(edClock());
+  let out = null;
+  if (ed.layout && !ed.problems.length) {
+    out = edOutTime(edClock());
+  } else if (ed.layout) {
+    // The marks aren't finished: show the bug anyway, counting from where the game
+    // starts (or from the beginning), so the teams and colours can be seen while marking.
+    const start = ed.project.marks.find((m) => m.kind === "start");
+    out = !start ? edClock() : edClock() >= start.t ? edClock() - start.t : null;
+  }
   bug.hidden = out == null;
   if (out == null) return;
   // Everything is measured for a picture 1920 wide and scaled to the frame as shown.
@@ -3148,6 +3165,7 @@ function edDrawExport() {
       async () => {
         go.disabled = true;
         Object.assign(edRun, { note: "", warn: false, done: null });
+        edLetGo();
         let res;
         try { res = await api().export_start(ed.id, edRun.quality); } catch (e) { res = { ok: false, error: String(e) }; }
         if (res && res.ok) Object.assign(edRun, { id: ed.id, percent: 0, eta: null });
@@ -3160,6 +3178,16 @@ function edDrawExport() {
     parts.push(row);
   }
   box.replaceChildren(...parts);
+}
+
+// A video that is open can't be replaced on Windows: if a game's page is playing an
+// earlier export, switch it back to the full game before a new export is made.
+function edLetGo() {
+  document.querySelectorAll("#games .game").forEach((card) => {
+    const player = card._player;
+    const playing = player && player.sources[player.current];
+    if (playing && playing.group === "Edited") { player.video.pause(); player.show(0); }
+  });
 }
 
 function edExportEvent(event, p) {
