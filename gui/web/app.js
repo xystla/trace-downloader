@@ -2853,7 +2853,7 @@ async function openEditor(id) {
   el("edError").hidden = !!(res && res.ok);
   el("edError").textContent = res && res.ok ? "" : (res && res.error) || "The game couldn't be opened.";
   el("edBody").hidden = !(res && res.ok);
-  if (res && res.ok) el("edSide").prepend(el("edGame")); else el("edHead").append(el("edGame"));
+  edPlacePicker();
   el("edHint").hidden = !!(res && res.ok);
   if (!(res && res.ok)) { ed.id = null; edListGames(); return; }
   Object.assign(ed, { id, project: res.project, segments: res.segments, problems: res.problems,
@@ -2911,6 +2911,15 @@ async function edSave() {
   Object.assign(ed, { project: res.project, segments: res.segments, problems: res.problems, layout: res.layout || ed.layout });
   edRender();
 }
+
+// The game picker heads the side column while that column is beside the video.
+// In a narrow window the column drops below everything, so the picker stays up top.
+const edStacked = window.matchMedia("(max-width:1180px)");
+function edPlacePicker() {
+  const beside = !el("edBody").hidden && !edStacked.matches;
+  if (beside) el("edSide").prepend(el("edGame")); else el("edHead").append(el("edGame"));
+}
+edStacked.addEventListener("change", edPlacePicker);
 
 // Redraw everything that shows the edit. The parts are added by the sections below.
 const edParts = [];
@@ -3015,7 +3024,7 @@ function edAddMark(kind) {
 }
 
 function edDrawButtons() {
-  // All six share one row; a long team name is cut short there and given whole in the tooltip.
+  // All six share one row when their words fit, and two rows of three when they don't.
   el("edButtons").replaceChildren(...["start", "break", "resume", "goal_home", "goal_away", "end"].map((kind) => {
     const b = node("button");
     b.innerHTML = icon(kind.startsWith("goal") ? "check" : kind === "break" ? "pause" : "play");
@@ -3024,6 +3033,21 @@ function edDrawButtons() {
     b.onclick = () => edAddMark(kind);
     return b;
   }));
+  edFitButtons();
+}
+
+function edFitButtons() {
+  const row = el("edButtons");
+  row.classList.remove("two-rows");          // try one row first, and see whether any label is cut short
+  const cut = [...row.querySelectorAll("button > span")].some((s) => s.scrollWidth > s.clientWidth + 1);
+  row.classList.toggle("two-rows", cut);
+}
+if (window.ResizeObserver) {
+  let edButtonsWide = 0;
+  new ResizeObserver(([entry]) => {
+    const wide = Math.round(entry.contentRect.width);
+    if (wide !== edButtonsWide) { edButtonsWide = wide; edFitButtons(); }
+  }).observe(el("edButtons"));
 }
 
 function edDrawMarks() {
