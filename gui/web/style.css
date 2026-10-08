@@ -596,8 +596,10 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-body { display:grid; grid-template-columns:minmax(0, 1fr) 340px; gap:16px; align-items:start; }
 .ed-stage { display:flex; flex-direction:column; gap:12px; min-width:0; }
 #edFrame video { display:block; width:100%; height:auto; aspect-ratio:16 / 9; background:#000; object-fit:contain; }
-.ed-buttons { display:flex; flex-wrap:wrap; gap:8px; }
-.ed-buttons button { padding:8px 12px; font-size:13px; }
+.ed-buttons { display:flex; flex-wrap:nowrap; gap:6px; }
+.ed-buttons button { flex:1 1 auto; min-width:0; padding:8px 9px; gap:6px; font-size:13px; white-space:nowrap; }
+.ed-buttons button > svg { flex:none; }
+.ed-buttons button > span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .ed-side { display:flex; flex-direction:column; gap:12px; }
 .ed-card { padding:12px 14px 14px; }
 .ed-card h3 { margin:0 0 10px; }

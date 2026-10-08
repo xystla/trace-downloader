@@ -3015,9 +3015,15 @@ function edAddMark(kind) {
 }
 
 function edDrawButtons() {
-  el("edButtons").replaceChildren(...["start", "break", "resume", "goal_home", "goal_away", "end"].map((kind) =>
-    labelButton(kind.startsWith("goal") ? "check" : kind === "break" ? "pause" : "play", edLabel(kind),
-      "Mark this at the moment the video is showing.", () => edAddMark(kind))));
+  // All six share one row; a long team name is cut short there and given whole in the tooltip.
+  el("edButtons").replaceChildren(...["start", "break", "resume", "goal_home", "goal_away", "end"].map((kind) => {
+    const b = node("button");
+    b.innerHTML = icon(kind.startsWith("goal") ? "check" : kind === "break" ? "pause" : "play");
+    b.append(node("span", "", edLabel(kind)));
+    b.title = `${edLabel(kind)}: mark this at the moment the video is showing.`;
+    b.onclick = () => edAddMark(kind);
+    return b;
+  }));
 }
 
 function edDrawMarks() {
