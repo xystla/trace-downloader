@@ -526,6 +526,8 @@ dialog menu { display:flex; justify-content:flex-end; gap:8px; padding:0; margin
 .stats-table tfoot td { font-weight:600; border-bottom:0; }
 
 @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
+/* The one exception, by choice: the play button on the splash screen still turns. */
+@media (prefers-reduced-motion:reduce) { .splash-play { animation:splash-spin 1.5s cubic-bezier(.65,0,.3,1) infinite !important; } }
 .update-card .row { flex-wrap:wrap; gap:8px; }
 .update-card button { white-space:nowrap; }
 #nav .count { margin-left:auto; min-width:20px; padding:1px 6px; border-radius:10px; background:var(--accent);
