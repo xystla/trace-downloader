@@ -186,15 +186,16 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
     changes = edit.score_changes(project["marks"], segments)
     with tempfile.TemporaryDirectory(prefix="tracedown-export-") as folder:
         work = Path(folder)
-        shutil.copyfile(scorebug.font_path(), work / "font.ttf")
+        bug = project.get("bug")
+        shutil.copyfile(scorebug.font_path(scorebug.style(bug)["font"]), work / "font.ttf")
         plates = []
         for k, (since, home, away) in enumerate(changes):
             until = changes[k + 1][0] if k + 1 < len(changes) else total + 1
             name = f"plate{k}.png"
-            scorebug.render(project["home"], project["away"], home, away, scale).save(work / name)
+            scorebug.render(project["home"], project["away"], home, away, scale, bug).save(work / name)
             plates.append((name, since, until))
         (work / "graph.txt").write_text(
-            filter_script(parts, plates, scorebug.layout(scale), "font.ttf",
+            filter_script(parts, plates, scorebug.layout(scale, project["home"], project["away"], bug), "font.ttf",
                           size=(infos[0]["width"], infos[0]["height"]), fps=infos[0]["fps"], audio=audio),
             encoding="utf-8")
         dest.parent.mkdir(parents=True, exist_ok=True)

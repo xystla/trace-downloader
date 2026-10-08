@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from trace_grabber import scorebug
 from trace_grabber.games import Game
 
 
@@ -1145,7 +1146,7 @@ def test_opening_the_editor_gives_the_page_everything_it_draws_from(editor):
     assert opened["sources"] == [
         {"url": "http://127.0.0.1:1/tok/g_half1.mp4", "name": "g_half1.mp4", "start": 0, "length": 1500.0},
         {"url": "http://127.0.0.1:1/tok/g_half2.mp4", "name": "g_half2.mp4", "start": 1500.0, "length": 1600.0}]
-    assert opened["duration"] == 3100.0 and opened["layout"]["width"] == 418 and opened["score"] is None
+    assert opened["duration"] == 3100.0 and opened["layout"] == scorebug.layout(1.0, editor.project["home"], editor.project["away"]) and opened["score"] is None
     assert editor.asked == [("open", "t-1", "T", "Rovers")]
 
 
@@ -1168,6 +1169,18 @@ def test_a_plate_is_drawn_for_the_page_to_preview(editor):
     plate = editor.bug_plate({"code": "tig", "color": "#16a05a"}, {"code": "ROV", "color": "nonsense"}, 2, 1)
     assert plate["ok"] is True and plate["url"].startswith("data:image/png;base64,iVBOR")
     assert editor.bug_plate(None, None, "x", None)["ok"] is True          # junk is tidied, never an error
+    big = editor.bug_plate({"code": "TIG"}, {"code": "ROV"}, 0, 0, {"size": 2.0, "font": "poppins"})
+    assert big["ok"] is True and len(big["url"]) > len(plate["url"])
+
+
+def test_the_editor_is_told_the_typefaces_and_gets_a_fresh_layout_with_each_save(editor):
+    opened = editor.edit_open("t-1")
+    assert opened["fonts"][0] == {"key": "barlow", "label": "Barlow Semi Condensed", "file": "BarlowSemiCondensed-SemiBold.ttf"}
+    assert len(opened["fonts"]) == 6 and opened["sizes"] == [0.5, 2.0]
+    changed = {**editor.project, "home": {**editor.project["home"], "code": "TIGER SHARKS"}, "bug": {"size": 1.5, "font": "anton"}}
+    saved = editor.edit_save("t-1", changed)
+    assert saved["layout"] == scorebug.layout(1.0, changed["home"], changed["away"], changed["bug"])
+    assert saved["layout"]["font"] == "anton" and saved["layout"]["width"] > opened["layout"]["width"] * 1.5
 
 
 def _events(api, name):

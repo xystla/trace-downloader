@@ -1,4 +1,4 @@
-"""A game's edit: who played, and the marks that say where the game starts,
+"""A game's edit: who played, how the score bug looks, and the marks that say where the game starts,
 pauses, resumes and ends and where each goal was scored.
 
 Kept in the game's folder ('Edit/edit.json'). Marks are timed on the game clock
@@ -10,6 +10,8 @@ import math
 import re
 import secrets
 from pathlib import Path
+
+from . import scorebug
 
 FOLDER = "Edit"
 FILE = "edit.json"
@@ -39,7 +41,7 @@ def code_from(name, fallback: str) -> str:
 def _team(team, side: str) -> dict:
     team = team if isinstance(team, dict) else {}
     name = " ".join(team["name"].split())[:40] if isinstance(team.get("name"), str) else ""
-    code = re.sub(r"[^A-Za-z0-9]", "", team["code"])[:4].upper() if isinstance(team.get("code"), str) else ""
+    code = " ".join(team["code"].split())[:40].strip().upper() if isinstance(team.get("code"), str) else ""
     color = team.get("color")
     color = color.lower() if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color) else COLORS[side]
     return {"name": name, "code": code or code_from(name, CODES[side]), "color": color}
@@ -59,14 +61,14 @@ def clean(project) -> dict:
         mark_id = m["id"] if isinstance(m.get("id"), str) and m["id"] else secrets.token_hex(4)
         marks.append({"id": mark_id, "kind": m["kind"], "t": round(float(t), 3)})
     return {"home": _team(project.get("home"), "home"), "away": _team(project.get("away"), "away"),
-            "marks": sorted(marks, key=lambda m: m["t"])}
+            "bug": scorebug.style(project.get("bug")), "marks": sorted(marks, key=lambda m: m["t"])}
 
 
-def default_project(home_name, away_name, remembered=None) -> dict:
-    """A new edit: the person's team (as they set it up last time, if they did)
-    against the opponent, with no marks yet."""
+def default_project(home_name, away_name, remembered=None, bug=None) -> dict:
+    """A new edit: the person's team and the bug's look (as they set them up
+    last time, if they did) against the opponent, with no marks yet."""
     home = remembered if isinstance(remembered, dict) else {"name": home_name or ""}
-    return clean({"home": home, "away": {"name": away_name or ""}, "marks": []})
+    return clean({"home": home, "away": {"name": away_name or ""}, "bug": bug, "marks": []})
 
 
 def _path(game_root) -> Path:

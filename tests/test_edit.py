@@ -66,16 +66,25 @@ def test_a_period_too_short_to_show_is_a_problem():
 
 
 def test_team_details_are_tidied():
-    cleaned = edit.clean({"home": {"name": "  Tiger   Sharks ", "code": "tig-sh4rks", "color": "#16A05A"},
+    cleaned = edit.clean({"home": {"name": "  Tiger   Sharks ", "code": "  tiger   sharks u-12 ", "color": "#16A05A"},
                           "away": {"name": "", "code": "", "color": "blue"},
                           "marks": [{"id": "a", "kind": "goal_home", "t": 30}, {"kind": "start", "t": 2.26},
                                     {"id": "x", "kind": "kickoff", "t": 3}, {"id": "y", "kind": "end", "t": "late"},
                                     {"id": "z", "kind": "end", "t": -4}, "junk", {"id": "n", "kind": "end", "t": float("nan")}]})
-    assert cleaned["home"] == {"name": "Tiger Sharks", "code": "TIGS", "color": "#16a05a"}
+    assert cleaned["home"] == {"name": "Tiger Sharks", "code": "TIGER SHARKS U-12", "color": "#16a05a"}
     assert cleaned["away"] == {"name": "", "code": "AWY", "color": "#1e5ac8"}
     assert [(m["kind"], m["t"]) for m in cleaned["marks"]] == [("start", 2.26), ("goal_home", 30.0)]
     assert all(isinstance(m["id"], str) and m["id"] for m in cleaned["marks"])
     assert edit.clean("nonsense")["marks"] == [] and edit.clean(None)["home"]["code"] == "HOM"
+    assert len(edit.clean({"home": {"code": "x" * 90}})["home"]["code"]) == 40
+
+
+def test_the_bug_settings_travel_with_the_edit():
+    assert edit.clean({})["bug"] == {"size": 1.0, "font": "barlow"}
+    assert edit.clean({"bug": {"size": 1.5, "font": "anton"}})["bug"] == {"size": 1.5, "font": "anton"}
+    assert edit.clean({"bug": {"size": 40, "font": "wingdings"}})["bug"] == {"size": 2.0, "font": "barlow"}
+    fresh = edit.default_project("T", "R", None, {"size": 1.3, "font": "bebas"})
+    assert fresh["bug"] == {"size": 1.3, "font": "bebas"}
 
 
 def test_a_code_is_taken_from_the_name():

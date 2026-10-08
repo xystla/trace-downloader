@@ -299,14 +299,15 @@ class Worker:
     def _edit_teams_path(self):
         return DATA / "edit_teams.json"
 
-    def _remembered_team(self):
-        """How the person set their own team up in the editor last time, if they did."""
+    def _remembered_team(self, what=""):
+        """How the person set their own team up in the editor last time, if they
+        did (or, with what=".bug", the score bug's look)."""
         try:
-            return json.loads(self._edit_teams_path().read_text(encoding="utf-8")).get(self._active().id)
+            return json.loads(self._edit_teams_path().read_text(encoding="utf-8")).get(self._active().id + what)
         except (OSError, ValueError, AttributeError):
             return None
 
-    def _remember_team(self, team):
+    def _remember_team(self, team, bug=None):
         try:
             known = json.loads(self._edit_teams_path().read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -314,6 +315,8 @@ class Worker:
         if not isinstance(known, dict):
             known = {}
         known[self._active().id] = team
+        if bug is not None:
+            known[self._active().id + ".bug"] = bug
         self._write(self._edit_teams_path(), json.dumps(known, indent=1).encode("utf-8"))
 
     def _edit_files(self, game_id, date, opponent):
@@ -327,13 +330,13 @@ class Worker:
         files = self._edit_files(game_id, date, opponent)
         infos = [export.video_info(f) for f in files]
         project = edit.load(self._folders(game_id, date, opponent).root) or edit.default_project(
-            home_name, away_name, self._remembered_team())
+            home_name, away_name, self._remembered_team(), self._remembered_team(".bug"))
         return {"project": project, "files": files, "durations": [info["duration"] for info in infos],
                 "height": infos[0]["height"]}
 
     def edit_save(self, game_id, date, opponent, project):
         kept = edit.save(self._folders(game_id, date, opponent).root, project)
-        self._remember_team(kept["home"])
+        self._remember_team(kept["home"], kept["bug"])
         return kept
 
     def export_edit(self, game_id, date, opponent, quality, on_progress=None, on_proc=None):

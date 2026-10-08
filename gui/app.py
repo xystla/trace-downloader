@@ -392,7 +392,14 @@ class Api:
         segments, problems = edit.outline(opened["project"]["marks"])
         return {"ok": True, "id": game_id, "title": f"vs {g.opponent or g.title}", "project": opened["project"],
                 "segments": [list(s) for s in segments], "problems": problems, "sources": sources, "duration": at,
-                "score": score_view(g), "layout": scorebug.layout(1.0)}
+                "score": score_view(g), "layout": self._bug_layout(opened["project"]),
+                "fonts": [{"key": key, "label": label, "file": file} for key, (label, file) in scorebug.FONTS.items()],
+                "sizes": list(scorebug.SIZES)}
+
+    @staticmethod
+    def _bug_layout(project):
+        """Where the page puts the bug and its clock, for these teams and this look."""
+        return scorebug.layout(1.0, project["home"], project["away"], project.get("bug"))
 
     def edit_save(self, game_id, project):
         """Keep the edit; answers with it as kept and with what is wrong with its marks."""
@@ -400,13 +407,14 @@ class Api:
         if error:
             return {"ok": False, "error": error}
         segments, problems = edit.outline(kept["marks"])
-        return {"ok": True, "project": kept, "segments": [list(s) for s in segments], "problems": problems}
+        return {"ok": True, "project": kept, "segments": [list(s) for s in segments], "problems": problems,
+                "layout": self._bug_layout(kept)}
 
-    def bug_plate(self, home, away, home_score, away_score):
+    def bug_plate(self, home, away, home_score, away_score, bug=None):
         """The score bug (without its clock digits) for a score, for the page's preview."""
-        teams = edit.clean({"home": home, "away": away})
+        teams = edit.clean({"home": home, "away": away, "bug": bug})
         count = lambda n: n if isinstance(n, int) and not isinstance(n, bool) and 0 <= n < 100 else 0
-        plate = scorebug.render(teams["home"], teams["away"], count(home_score), count(away_score))
+        plate = scorebug.render(teams["home"], teams["away"], count(home_score), count(away_score), bug=teams["bug"])
         return {"ok": True, "url": "data:image/png;base64," + base64.b64encode(scorebug.png_bytes(plate)).decode("ascii")}
 
     def export_start(self, game_id, quality="best"):

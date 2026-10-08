@@ -242,6 +242,7 @@
           <div id="edButtons" class="ed-buttons"></div>
           <div id="edNow" class="caption ed-now"></div>
           <div id="edTimeline" class="timeline"></div>
+          <div id="edLegend" class="legend ed-legend"></div>
         </div>
         <div class="ed-side">
           <div class="card ed-card">
@@ -249,13 +250,18 @@
             <div class="ed-team" data-side="home">
               <input type="color" aria-label="Your team's colour">
               <input type="text" class="ed-name" maxlength="40" placeholder="Your team" aria-label="Your team's name">
-              <input type="text" class="ed-code" maxlength="4" placeholder="ABC" aria-label="Your team's code, up to four letters">
+              <input type="text" class="ed-code" maxlength="40" placeholder="On the score bug" aria-label="Your team's name as shown on the score bug" title="Shown on the score bug. A longer name makes the bug wider.">
             </div>
             <div class="ed-team" data-side="away">
               <input type="color" aria-label="Opponent's colour">
               <input type="text" class="ed-name" maxlength="40" placeholder="Opponent" aria-label="Opponent's name">
-              <input type="text" class="ed-code" maxlength="4" placeholder="ABC" aria-label="Opponent's code, up to four letters">
+              <input type="text" class="ed-code" maxlength="40" placeholder="On the score bug" aria-label="Opponent's name as shown on the score bug" title="Shown on the score bug. A longer name makes the bug wider.">
             </div>
+          </div>
+          <div class="card ed-card">
+            <h3>Score bug</h3>
+            <label class="ed-look"><span>Font</span><select id="edFont" aria-label="The score bug's font"></select></label>
+            <label class="ed-look"><span>Size</span><input type="range" id="edSize" min="50" max="200" step="5" value="100" aria-label="The score bug's size"><output id="edSizeNow">100%</output></label>
           </div>
           <div class="card ed-card">
             <h3>Marks</h3>

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from trace_grabber import export
+from trace_grabber import scorebug, export
 from trace_grabber.export import Piece
 
 INFO = """Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'game.mp4':
@@ -164,13 +164,28 @@ def test_an_export_cuts_the_breaks_and_changes_the_plate_at_each_goal(monkeypatc
     assert ran["total"] == 1200 and ran["files"] == ["font.ttf", "graph.txt", "plate0.png", "plate1.png"]
     assert "between(t,0.000,290.000)" in ran["graph"] and "between(t,290.000,1201.000)" in ran["graph"]
     assert ran["cmd"][-1].endswith("game (edited).part.mp4") and Path(ran["cmd"][-1]).is_absolute()
-    assert ran["plate_size"] == (418, 46)
+    assert ran["plate_size"] == scorebug.size(PROJECT["home"], PROJECT["away"])
 
 
 def test_the_bug_is_scaled_for_a_smaller_picture(monkeypatch, tmp_path):
     ran = _fake_export(monkeypatch, height=720)
     export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4")
-    assert ran["plate_size"] == (279, 31) and "overlay=40:32" in ran["graph"] and "fontsize=18" in ran["graph"]
+    assert ran["plate_size"] == scorebug.size(PROJECT["home"], PROJECT["away"], 720 / 1080) and ran["plate_size"][1] == 38
+    assert "overlay=40:32" in ran["graph"] and "fontsize=24" in ran["graph"]
+
+
+def test_the_export_uses_the_edit_own_size_and_typeface(monkeypatch, tmp_path):
+    ran = _fake_export(monkeypatch)
+    styled = {**PROJECT, "bug": {"size": 1.5, "font": "anton"}}
+    def run(cmd, total, cwd, progress_cb=None, on_proc=None, keep=export.run):
+        ran["font"] = (Path(cwd) / "font.ttf").read_bytes()
+        keep(cmd, total, cwd, progress_cb, on_proc)
+    monkeypatch.setattr(export, "run", run)
+    export.export(styled, ["/v/game.mp4"], tmp_path / "out.mp4")
+    lay = scorebug.layout(1.0, PROJECT["home"], PROJECT["away"], styled["bug"])
+    assert ran["font"] == scorebug.font_path("anton").read_bytes()
+    assert ran["plate_size"] == (lay["width"], lay["height"]) and lay["height"] == 86
+    assert f"fontsize={lay['clock']['size']}" in ran["graph"] and f"x={60 + lay['clock']['slots'][0]}-text_w/2" in ran["graph"]
 
 
 def test_a_failed_export_leaves_no_file_and_keeps_the_earlier_one(monkeypatch, tmp_path):

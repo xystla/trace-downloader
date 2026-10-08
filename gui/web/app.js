@@ -2849,6 +2849,7 @@ async function openEditor(id) {
   if (!(res && res.ok)) { ed.id = null; edListGames(); return; }
   Object.assign(ed, { id, project: res.project, segments: res.segments, problems: res.problems,
     sources: res.sources, duration: res.duration, layout: res.layout, score: res.score, current: -1 });
+  edOfferLooks(res.fonts || [], res.sizes || [0.5, 2]);
   edListGames();
   const video = el("edVideo");
   if (!edControls) {              // the app's usual play / scrub / speed bar, made once
@@ -2898,7 +2899,7 @@ async function edSave() {
     return;
   }
   el("edError").hidden = true;
-  Object.assign(ed, { project: res.project, segments: res.segments, problems: res.problems });
+  Object.assign(ed, { project: res.project, segments: res.segments, problems: res.problems, layout: res.layout || ed.layout });
   edRender();
 }
 
@@ -2912,8 +2913,37 @@ function edRender() {
     row.querySelector(".ed-name").value = team.name;
     row.querySelector(".ed-code").value = team.code;
   }
+  el("edFont").value = ed.project.bug.font;
+  if (document.activeElement !== el("edSize")) el("edSize").value = Math.round(ed.project.bug.size * 100);
+  el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
   edParts.forEach((draw) => draw());
 }
+
+// The score bug's look: the typefaces the app ships, and how far the size goes.
+const edFaces = new Set();
+function edOfferLooks(fonts, sizes) {
+  el("edFont").replaceChildren(...fonts.map((f) => {
+    const o = node("option", "", f.label);
+    o.value = f.key;
+    return o;
+  }));
+  for (const f of fonts) {
+    if (edFaces.has(f.key)) continue;
+    edFaces.add(f.key);
+    const face = new FontFace("TraceDown Bug " + f.key, `url("fonts/${f.file}")`);
+    document.fonts.add(face);
+    face.load().then(() => { if (ed.id) edDrawBug(); }, () => {});
+  }
+  Object.assign(el("edSize"), { min: Math.round(sizes[0] * 100), max: Math.round(sizes[1] * 100) });
+}
+el("edFont").onchange = () => { ed.project.bug.font = el("edFont").value; edSave(); };
+let edSizeWait = 0;
+el("edSize").oninput = () => {
+  ed.project.bug.size = Number(el("edSize").value) / 100;
+  el("edSizeNow").textContent = el("edSize").value + "%";
+  clearTimeout(edSizeWait);
+  edSizeWait = setTimeout(edSave, 150);      // while dragging, save (and redraw) only now and then
+};
 
 document.querySelectorAll(".ed-team").forEach((row) => {
   const side = row.dataset.side;
@@ -3005,7 +3035,7 @@ async function edLoadReference() {
   const moments = (game && game.timeline && game.timeline.moments) || [];
   edReference = { id, marks: [
     ...moments.filter((m) => m.label.endsWith("shot")).map((m) => ({ t: m.t, cls: m.label.startsWith("opp-") ? "them" : "us",
-      text: `${m.label.startsWith("opp-") ? "Opponent shot" : "Shot"} · ${clock(m.t)}` })),
+      text: `${m.label.startsWith("opp-") ? "Opponent shot" : "Your shot"} · ${clock(m.t)}` })),
     ...bookmarks.map((b) => ({ t: b.t, cls: "mine", text: `Your bookmark · ${clock(b.t)}${b.note ? ": " + b.note : ""}` }))] };
   edDrawTimeline();
 }
@@ -3027,11 +3057,23 @@ function edDrawTimeline() {
   const mark = (t, cls, text) => {
     const b = node("button", "tl-mark " + cls);
     b.style.left = at(t);
-    b.title = text;
     b.setAttribute("aria-label", text);
     b.onclick = () => edSeek(t);
+    // Say what the mark is as soon as the pointer is on it (the system's own
+    // tooltip is slow, and missing altogether in some of the app's windows).
+    const say = () => {
+      tip.textContent = text;
+      tip.hidden = false;
+      const room = el("edTimeline").clientWidth, half = tip.offsetWidth / 2;
+      tip.style.left = Math.min(room - half, Math.max(half, b.offsetLeft)) + "px";
+    };
+    b.onmouseenter = say;
+    b.onfocus = say;
+    b.onmouseleave = b.onblur = () => { tip.hidden = true; };
     track.append(b);
   };
+  const tip = node("div", "ed-tip");
+  tip.hidden = true;
   if (edReference.id === ed.id) edReference.marks.forEach((m) => mark(m.t, "ref " + m.cls, m.text));
   ed.project.marks.forEach((m) => mark(m.t, "ed " + (m.kind.startsWith("goal") ? "goal"
     : m.kind === "start" || m.kind === "end" ? "edge" : ""), `${edLabel(m.kind)} · ${clock(m.t)}`));
@@ -3044,8 +3086,12 @@ function edDrawTimeline() {
     const box = track.getBoundingClientRect();
     edSeek(((e.clientX - box.left) / box.width) * ed.duration);
   };
-  track.title = "Click to go to that moment of the game.";
-  el("edTimeline").replaceChildren(track);
+  el("edTimeline").replaceChildren(track, tip);
+  const key = (cls, text) => { const item = node("span"); item.append(node("i", "tl-key " + cls), text); return item; };
+  const refs = edReference.id === ed.id ? edReference.marks : [];
+  el("edLegend").replaceChildren(...[["us", "Your shots"], ["them", "Opponent shots"], ["mine", "Your bookmarks"]]
+    .filter(([cls]) => refs.some((m) => m.cls === cls)).map(([cls, text]) => key(cls, text)),
+    ...(refs.length ? [node("span", "", "Hover a mark to see what it is; click to go there.")] : []));
   edMoveHead();
 }
 
@@ -3066,11 +3112,11 @@ const edPlates = new Map();      // "home-away" -> picture address, for the team
 let edPlateTeams = "";
 
 function edPlate(home, away) {
-  const teams = JSON.stringify([ed.project.home, ed.project.away]);
+  const teams = JSON.stringify([ed.project.home, ed.project.away, ed.project.bug]);
   if (teams !== edPlateTeams) { edPlateTeams = teams; edPlates.clear(); }
   const key = `${home}-${away}`;
   if (!edPlates.has(key)) {
-    edPlates.set(key, api().bug_plate(ed.project.home, ed.project.away, home, away)
+    edPlates.set(key, api().bug_plate(ed.project.home, ed.project.away, home, away, ed.project.bug)
       .then((res) => (res && res.ok ? res.url : ""), () => ""));
   }
   return edPlates.get(key);
@@ -3092,12 +3138,12 @@ function edDrawBug() {
   // Everything is measured for a picture 1920 wide and scaled to the frame as shown.
   const k = el("edFrame").clientWidth / 1920;
   const lay = ed.layout;
-  Object.assign(bug.style, { left: lay.x * k + "px", top: lay.y * k + "px",
-    width: lay.width * k + "px", height: lay.height * k + "px" });
+  // The plate is as wide as the names need, so only its height is set here.
+  Object.assign(bug.style, { left: lay.x * k + "px", top: lay.y * k + "px", height: lay.height * k + "px" });
   const [home, away] = edScoreAt(edClock());
   const img = bug.querySelector("img");
   const want = `${home}-${away}`;
-  const teams = JSON.stringify([ed.project.home, ed.project.away]);      // a new code or colour is a new plate
+  const teams = JSON.stringify([ed.project.home, ed.project.away, ed.project.bug]);      // a new name, colour or look is a new plate
   if (img.dataset.score !== want || img.dataset.teams !== teams) {
     img.dataset.score = want;
     img.dataset.teams = teams;
@@ -3107,8 +3153,8 @@ function edDrawBug() {
   const text = [Math.floor(secs / 600), Math.floor(secs / 60) % 10, ":", Math.floor((secs % 60) / 10), secs % 10];
   bug.querySelectorAll("span").forEach((span, i) => {
     span.textContent = text[i];
-    Object.assign(span.style, { left: lay.clock.slots[i] * k + "px", top: lay.clock.y * k + "px",
-      fontSize: lay.clock.size * k + "px", color: lay.clock.color });
+    Object.assign(span.style, { left: lay.clock.slots[i] * k + "px", top: lay.clock.page_y[i] * k + "px",
+      fontSize: lay.clock.size * k + "px", color: lay.clock.color, fontFamily: `"TraceDown Bug ${lay.font}", sans-serif` });
   });
 }
 

@@ -1,10 +1,14 @@
 """The score bug: a white clock box, then a dark bar with a strip of each team's
-colour at its ends, their three-letter codes, and the score in a white box.
+colour at its ends, their names, and the score in a white box. The bar is as
+wide as the names need, and the boxes as wide as the chosen typeface's digits.
 
 The app draws the "plate" (everything but the clock's digits) for a score; the
 export overlays the plate and writes the digits, and the editor's preview shows
 the same plate with the digits drawn by the page. Sizes are for a picture 1080
-lines tall and are scaled for others."""
+lines tall, before BIG and the edit's own size setting, and are scaled for
+others."""
+import math
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
@@ -12,61 +16,153 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import paths
 
-FONT_FILE = "BarlowSemiCondensed-SemiBold.ttf"
+# The typefaces on offer (all under the SIL Open Font License): what the person
+# sees, and the file. They live with the page, which uses the same files.
+FONTS = {
+    "barlow": ("Barlow Semi Condensed", "BarlowSemiCondensed-SemiBold.ttf"),
+    "bebas": ("Bebas Neue", "BebasNeue-Regular.ttf"),
+    "anton": ("Anton", "Anton-Regular.ttf"),
+    "saira": ("Saira Condensed", "SairaCondensed-SemiBold.ttf"),
+    "titillium": ("Titillium Web", "TitilliumWeb-SemiBold.ttf"),
+    "poppins": ("Poppins", "Poppins-SemiBold.ttf"),
+}
+DEFAULT_FONT = "barlow"
+SIZES = (0.5, 2.0)              # how far the size setting goes; 1.0 is the usual size
 ORIGIN = (60, 48)               # where the plate's top-left sits in the picture
-WIDTH, HEIGHT = 418, 46
-BAR_X = 100                     # the bar starts here, after the clock box and a gap
+BIG = 1.25                      # the whole bug is drawn this much bigger than its measurements
+HEIGHT = 46
+GAP = 8                         # between the clock's box and the bar
+END = 15                        # each end of the bar, holding a team's colour strip
+NAME, NAME_SIZE, NAME_PAD = 95, 28, 14      # a name's room (at least), its type size, the space at its sides
+DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
+CLOCK_MIN, CLOCK_PAD = 92, 12   # the clock box's least width, and the space at its sides
 PURPLE, WHITE, INK = (45, 10, 60), (255, 255, 255), (28, 18, 38)
-# The clock's five glyphs (M M : S S) each have their own place, so the clock
-# doesn't shift sideways as the digits change width.
-CLOCK = {"slots": [19, 35, 46, 57, 73], "y": 23, "size": 27, "color": "#1c1226"}
+CLOCK_COLOR = "#1c1226"
 _SMOOTH = 3                     # drawn this many times bigger, then shrunk, for smooth edges
+_FINE = 8                       # type is measured this many times bigger, for fractions of a pixel
 
 
-def font_path() -> Path:
-    """The bug's typeface. It lives with the page, which uses the same file."""
-    return paths.resource_dir() / "gui" / "web" / "fonts" / FONT_FILE
+def font_path(font: str = DEFAULT_FONT) -> Path:
+    """A typeface's file (the usual one's, for a name that isn't on offer)."""
+    file = FONTS.get(font, FONTS[DEFAULT_FONT])[1]
+    return paths.resource_dir() / "gui" / "web" / "fonts" / file
+
+
+def style(bug) -> dict:
+    """The edit's bug settings as the app keeps them, whatever was handed in."""
+    bug = bug if isinstance(bug, dict) else {}
+    size = bug.get("size")
+    if isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size):
+        size = 1.0
+    font = bug.get("font")
+    return {"size": round(min(SIZES[1], max(SIZES[0], float(size))), 2),
+            "font": font if isinstance(font, str) and font in FONTS else DEFAULT_FONT}
+
+
+@lru_cache(maxsize=64)
+def _face(font: str, pixels: int):
+    return ImageFont.truetype(str(font_path(font)), max(1, pixels))
 
 
 def _rgb(color: str) -> tuple:
     return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
 
 
-def render(home: dict, away: dict, home_score: int, away_score: int, scale: float = 1.0) -> Image.Image:
+def _wide(font: str, size: int, words: str) -> float:
+    return _face(font, size * _FINE).getlength(words) / _FINE
+
+
+def _plan(home: dict, away: dict, font: str) -> dict:
+    """Where the bug's parts sit, left to right, for these names in this typeface."""
+    digit = max(_wide(font, DIGIT_SIZE, d) for d in "0123456789")
+    colon = _wide(font, DIGIT_SIZE, ":")
+    # The clock's five glyphs (M M : S S) each have their own place, so the clock
+    # doesn't shift sideways as the digits change width.
+    steps = [digit / 2, digit + 1, digit / 2 + 1 + colon / 2, colon / 2 + 1 + digit / 2, digit + 1]
+    clock = max(CLOCK_MIN, math.ceil(4 * digit + colon + 4 + 2 * CLOCK_PAD))
+    at, slots = (clock - (4 * digit + colon + 4)) / 2, []
+    for step in steps:
+        at += step
+        slots.append(at)
+    bar = clock + GAP
+    side = 2 * digit + 8                                   # room for a score of two digits
+    dash = 16
+    score_wide = math.ceil(2 * side + dash + 8)
+    home_room = max(NAME, math.ceil(_wide(font, NAME_SIZE, home["code"])) + 2 * NAME_PAD)
+    away_room = max(NAME, math.ceil(_wide(font, NAME_SIZE, away["code"])) + 2 * NAME_PAD)
+    score = bar + END + home_room
+    return {"clock": clock, "slots": slots, "bar": bar, "home": bar + END + home_room / 2,
+            "score": score, "score_wide": score_wide, "home_digit": score + 4 + side / 2,
+            "dash": score + score_wide / 2, "away_digit": score + score_wide - 4 - side / 2,
+            "away": score + score_wide + away_room / 2, "width": score + score_wide + away_room + END}
+
+
+def _middle(face, glyph: str) -> float:
+    """How far below the type's own middle line the middle of a glyph's ink is."""
+    box = face.getbbox(glyph, anchor="mm")
+    return (box[1] + box[3]) / 2
+
+
+def size(home: dict, away: dict, scale: float = 1.0, bug=None) -> tuple:
+    """The plate's width and height in the picture."""
+    bug = style(bug)
+    k = scale * BIG * bug["size"]
+    return round(_plan(home, away, bug["font"])["width"] * k), round(HEIGHT * k)
+
+
+def render(home: dict, away: dict, home_score: int, away_score: int, scale: float = 1.0, bug=None) -> Image.Image:
     """The plate for a score: the whole bug except the clock's digits."""
-    k = scale * _SMOOTH
-    plate = Image.new("RGBA", (round(WIDTH * k), round(HEIGHT * k)), (0, 0, 0, 0))
+    bug = style(bug)
+    font = bug["font"]
+    final = size(home, away, scale, bug)
+    k = scale * BIG * bug["size"] * _SMOOTH
+    plan = _plan(home, away, font)
+    width, score, mid = plan["width"], plan["score"], HEIGHT / 2
+    # Drawn exactly _SMOOTH times the final size, so nothing shifts when it is shrunk.
+    plate = Image.new("RGBA", (final[0] * _SMOOTH, final[1] * _SMOOTH), (0, 0, 0, 0))
     draw = ImageDraw.Draw(plate)
 
     def box(x, y, w, h, radius, fill):
         draw.rounded_rectangle([x * k, y * k, (x + w) * k, (y + h) * k], radius=radius * k, fill=fill)
 
-    def text(cx, cy, words, size, fill):
-        font = ImageFont.truetype(str(font_path()), max(1, round(size * k)))
-        draw.text((cx * k, cy * k), words, font=font, fill=fill, anchor="mm")
+    def text(cx, words, type_size, fill, like):
+        # Set by the middle of its ink (of 'like', so a word doesn't ride up and
+        # down with its letters), which keeps every typeface in the middle of the bar.
+        face = _face(font, round(type_size * k))
+        draw.text((cx * k, mid * k - _middle(face, like)), words, font=face, fill=fill, anchor="mm")
 
-    code_size = lambda code: 28 if len(code) <= 3 else 23              # four letters are set smaller, to fit
-    box(0, 0, 92, HEIGHT, 10, WHITE)                                   # the clock's box
-    box(BAR_X, 0, 318, HEIGHT, 10, PURPLE)
-    box(BAR_X + 8, 8, 7, HEIGHT - 16, 3, _rgb(home["color"]))
-    text(BAR_X + 62, 22, home["code"], code_size(home["code"]), WHITE)
-    box(BAR_X + 110, 6, 98, HEIGHT - 12, 7, WHITE)                     # the score
-    text(BAR_X + 135, 22, str(home_score), 29, INK)
-    text(BAR_X + 159, 21, "-", 25, INK)
-    text(BAR_X + 183, 22, str(away_score), 29, INK)
-    text(BAR_X + 256, 22, away["code"], code_size(away["code"]), WHITE)
-    box(BAR_X + 303, 8, 7, HEIGHT - 16, 3, _rgb(away["color"]))
-    return plate.resize((round(WIDTH * scale), round(HEIGHT * scale)), Image.LANCZOS)
+    box(0, 0, plan["clock"], HEIGHT, 10, WHITE)                        # the clock's box
+    box(plan["bar"], 0, width - plan["bar"], HEIGHT, 10, PURPLE)
+    box(plan["bar"] + 8, 8, 7, HEIGHT - 16, 3, _rgb(home["color"]))
+    text(plan["home"], home["code"], NAME_SIZE, WHITE, "H")
+    box(score, 6, plan["score_wide"], HEIGHT - 12, 7, WHITE)           # the score
+    text(plan["home_digit"], str(home_score), DIGIT_SIZE, INK, "0")
+    box(plan["dash"] - 4.5, mid - 1.6, 9, 3.2, 1, INK)                 # the dash, drawn: a typeface's own sits where it likes
+    text(plan["away_digit"], str(away_score), DIGIT_SIZE, INK, "0")
+    text(plan["away"], away["code"], NAME_SIZE, WHITE, "H")
+    box(width - END, 8, 7, HEIGHT - 16, 3, _rgb(away["color"]))
+    return plate.resize(final, Image.LANCZOS)
 
 
-def layout(scale: float = 1.0) -> dict:
+def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = None, bug=None) -> dict:
     """Where the plate goes in the picture and where the clock's digits go on
-    the plate (slots are the centre of each glyph, measured from the plate's
-    left edge; y is their vertical centre)."""
-    s = lambda value: round(value * scale)
-    return {"x": s(ORIGIN[0]), "y": s(ORIGIN[1]), "width": s(WIDTH), "height": s(HEIGHT),
-            "clock": {"slots": [s(x) for x in CLOCK["slots"]], "y": s(CLOCK["y"]),
-                      "size": s(CLOCK["size"]), "color": CLOCK["color"]}}
+    the plate. Slots are the centre of each glyph, measured from the plate's
+    left edge; y is the vertical centre of each glyph's ink, which is what the
+    export sets; page_y is where the page puts the middle of each glyph's line
+    to get the same."""
+    bug = style(bug)
+    blank = {"code": ""}
+    home, away = home or blank, away or blank
+    k = scale * BIG * bug["size"]
+    plan = _plan(home, away, bug["font"])
+    width, height = size(home, away, scale, bug)
+    type_size, y = round(DIGIT_SIZE * k), round(HEIGHT / 2 * k)
+    face = _face(bug["font"], type_size)
+    return {"x": round(ORIGIN[0] * scale), "y": round(ORIGIN[1] * scale), "width": width, "height": height,
+            "font": bug["font"],
+            "clock": {"slots": [round(x * k) for x in plan["slots"]], "y": y,
+                      "page_y": [round(y - _middle(face, glyph), 1) for glyph in "00:00"],
+                      "width": round(plan["clock"] * k), "size": type_size, "color": CLOCK_COLOR}}
 
 
 def png_bytes(image: Image.Image) -> bytes:
