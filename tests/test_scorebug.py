@@ -27,7 +27,7 @@ def test_every_typeface_on_offer_is_shipped_with_its_licence():
 
 
 def test_a_bug_style_is_tidied():
-    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic"}
+    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic", "color2": ""}
     assert scorebug.style(None) == usual == scorebug.style("junk")
     assert scorebug.style({"size": 1.4, "font": "anton"}) == {**usual, "size": 1.4, "font": "anton"}
     assert scorebug.style({"size": 9, "font": "comic"}) == {**usual, "size": 2.0}
@@ -299,6 +299,27 @@ def test_the_blocks_design_fills_each_side_with_its_team_colour():
     far = round((plan["bar"] + (plan["score"] - plan["bar"]) * 0.8) * scorebug.BIG)
     soft, solid = plate.getpixel((far, 5)), scorebug.render(HOME, AWAY, 2, 1, bug={**bug, "strip": 40}).getpixel((far, 5))
     assert _near(solid, (22, 160, 90)) and not _near(soft, (22, 160, 90))
+
+
+def test_the_bar_can_fade_from_one_colour_to_another():
+    assert [scorebug.style({"color2": c})["color2"] for c in ("#FF5500", "", "orange", None, 5)] == ["#ff5500", "", "", "", ""]
+    for design in scorebug.DESIGNS:
+        bug = {"design": design, "color": "#000080", "color2": "#c00000", "timer": "right"}      # navy to red, bar first
+        plate, lay = scorebug.render(HOME, AWAY, 0, 0, bug=bug), scorebug.layout(1.0, HOME, AWAY, bug)
+        end = lay["clock"]["x"] - 12 if design != "slim" else plate.size[0] - 1                   # where the bar stops
+        colour_at = lambda frac: plate.getpixel((round(end * frac), 3))
+        if design != "blocks":                                                                    # (blocks start and end in team colours)
+            assert _near(colour_at(0.1), (0, 0, 128), slack=40) and _near(colour_at(0.9), (192, 0, 0), slack=40), design
+            assert colour_at(0.1)[2] > colour_at(0.5)[2] > colour_at(0.9)[2] and colour_at(0.1)[0] < colour_at(0.5)[0] < colour_at(0.9)[0], design
+        mid = colour_at(0.5) if design != "blocks" else plate.getpixel((round((scorebug._plan(HOME, AWAY, scorebug.style(bug))["dash"]) * scorebug.BIG), 3))
+        assert 30 < mid[0] < 170 and 20 < mid[2] < 110 and mid[1] < 20, design                    # between the two in the middle
+        assert plate.size == (lay["width"], lay["height"]), design
+    assert scorebug.render(HOME, AWAY, 0, 0, bug={"color2": ""}).tobytes() == scorebug.render(HOME, AWAY, 0, 0).tobytes()
+    # Names are read against the two colours together: dark on a pale fade.
+    pale = scorebug.render(HOME, AWAY, 0, 0, bug={"color": "#fff6c8", "color2": "#c8f0ff"})
+    left, _ = _score_box(pale) if False else (round(scorebug._plan(HOME, AWAY, scorebug.style(None))["score"] * scorebug.BIG), 0)
+    assert _ink(pale, (left - 100, 12, left - 20, 46)) is not None
+    assert scorebug.layout(1.0, HOME, AWAY, {"design": "slim", "color": "#fff6c8", "color2": "#c8f0ff"})["clock"]["color"] == "#1c1226"
 
 
 def test_a_plate_can_be_handed_over_as_a_png():

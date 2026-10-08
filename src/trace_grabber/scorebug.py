@@ -48,7 +48,7 @@ ROUNDS = (0, 23)                # corners: square, up to the bug's ends being ha
 NAME, NAME_SIZE, NAME_PAD = 95, 28, 14      # a name's room (at least), its type size, the space at its sides
 DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
 WHITE, INK = (255, 255, 255), (28, 18, 38)
-USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic"}
+USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic", "color2": ""}
 CLOCK_COLOR = "#1c1226"
 SLIDE = (0.6, 0.5)              # seconds the bug takes to slide in as the game starts, and out as it ends
 _SMOOTH = 3                     # drawn this many times bigger, then shrunk, for smooth edges
@@ -83,7 +83,9 @@ def style(bug) -> dict:
             "strip": whole("strip", *STRIPS), "round": whole("round", *ROUNDS),
             "timer": "right" if bug.get("timer") == "right" else "left",       # which side of the bar the timer is on
             "animate": bug.get("animate") is not False,
-            "design": bug.get("design") if isinstance(bug.get("design"), str) and bug.get("design") in DESIGNS else "classic"}
+            "design": bug.get("design") if isinstance(bug.get("design"), str) and bug.get("design") in DESIGNS else "classic",
+            # A second colour makes the bar fade from the first (left) to it (right); "" for one plain colour.
+            "color2": bug["color2"].lower() if isinstance(bug.get("color2"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", bug["color2"]) else ""}
 
 
 @lru_cache(maxsize=64)
@@ -142,7 +144,14 @@ def _clock_color(bug: dict) -> str:
     design, where the timer is part of the bar) whichever shows on the bar."""
     if bug["design"] != "slim":
         return CLOCK_COLOR
-    return CLOCK_COLOR if _light(_rgb(bug["color"])) else "#ffffff"
+    return CLOCK_COLOR if _light(_bar_colour(bug)) else "#ffffff"
+
+
+def _bar_colour(bug: dict) -> tuple:
+    """The bar's colour; for a bar that fades between two, the one half-way."""
+    first = _rgb(bug["color"])
+    second = _rgb(bug["color2"]) if bug["color2"] else first
+    return tuple(round((a + b) / 2) for a, b in zip(first, second))
 
 
 def _middle(face, glyph: str) -> float:
@@ -166,7 +175,9 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
     k = scale * BIG * bug["size"] * _SMOOTH
     plan = _plan(home, away, bug)
     width, score, mid = plan["width"], plan["score"], HEIGHT / 2
-    bar, corner, strip = _rgb(bug["color"]), bug["round"], bug["strip"]
+    first, corner, strip = _rgb(bug["color"]), bug["round"], bug["strip"]
+    second = _rgb(bug["color2"]) if bug["color2"] else first
+    bar = _bar_colour(bug)                             # the bar's colour, or the middle of its two
     names = INK if _light(bar) else WHITE              # whichever can be read on the bar
     # On a bar as pale as the score's box, the box is tinted so it still shows.
     score_fill = (232, 230, 236) if min(bar) > 225 else WHITE
@@ -186,10 +197,30 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
 
     inner = min(17, corner * 0.7)                      # the two white boxes are alike: as tall, as round
     design, bar_end = bug["design"], plan["bar"] + plan["bar_wide"]
+    span = (0, width) if design == "slim" else (plan["bar"], bar_end)          # where the bar starts and stops
+
+    def shade(x):
+        """The bar's colour at pixel column x: one colour, or part-way from the first to the second."""
+        along = min(1, max(0, (x / k - span[0]) / (span[1] - span[0])))
+        return tuple(round(a + (b - a) * along) for a, b in zip(first, second))
+
+    def fill_bar(band=None):
+        """The bar itself. `band`, if given, is what to fill it with (as wide as the plate)."""
+        if band is None and first == second:
+            return box(span[0], 0, span[1] - span[0], HEIGHT, corner, first)
+        if band is None:
+            band = Image.new("RGBA", plate.size)
+            paint = ImageDraw.Draw(band)
+            for x in range(round(span[0] * k), round(span[1] * k)):
+                paint.line([(x, 0), (x, band.size[1])], fill=shade(x))
+        shape = Image.new("L", plate.size, 0)
+        ImageDraw.Draw(shape).rounded_rectangle([span[0] * k, 0, span[1] * k, HEIGHT * k], radius=corner * k, fill=255)
+        plate.paste(band, (0, 0), shape)
+
     home_ink = away_ink = digits = names
     if design == "slim":
         # One bar from end to end, the timer inside it; a line of each team's colour under its name.
-        box(0, 0, width, HEIGHT, corner, bar)
+        fill_bar()
         edge = plan["clock"] if bug["timer"] == "left" else plan["clock_x"]
         box(edge - 0.75, 12, 1.5, HEIGHT - 24, 0.75, tuple(round((n + 2 * c) / 3) for n, c in zip(names, bar)))     # a faint divider
         weight = 2 + strip / 8
@@ -197,8 +228,8 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
             box(centre - wide / 2, HEIGHT - 3.5 - weight, max(wide, 12), weight, weight / 2 if corner else 0, _rgb(team["color"]))
     else:
         box(plan["clock_x"], 6, plan["clock"], HEIGHT - 12, inner, WHITE)                       # the clock's box
-        box(plan["bar"], 0, plan["bar_wide"], HEIGHT, corner, bar)
     if design == "classic":
+        fill_bar()
         digits = INK
         box(plan["bar"] + STRIP_AT, 8, strip, HEIGHT - 16, strip_corner, _rgb(home["color"]))
         box(bar_end - STRIP_AT - strip, 8, strip, HEIGHT - 16, strip_corner, _rgb(away["color"]))
@@ -207,20 +238,21 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         # Each side filled with its team's colour: solid from its end for part of the
         # way (more with a bigger strip setting), then fading into the bar's colour.
         solid = (strip - STRIPS[0]) / (STRIPS[1] - STRIPS[0])
-        band = Image.new("RGBA", plate.size, bar + (255,))
+        band = Image.new("RGBA", plate.size)
         paint = ImageDraw.Draw(band)
+        for x in range(round(score * k), round((score + plan["score_wide"]) * k)):
+            paint.line([(x, 0), (x, band.size[1])], fill=shade(x))
         for team, outer, inner_edge in ((home, plan["bar"], score), (away, bar_end, score + plan["score_wide"])):
             colour, a, b = _rgb(team["color"]), round(outer * k), round(inner_edge * k)
             for x in range(min(a, b), max(a, b)):
                 along = abs(x - a) / max(1, abs(b - a))                                 # 0 at the bar's end, 1 at the score
                 fade = 0 if solid >= 1 else min(1, max(0, (along - solid) / (1 - solid))) ** 1.5
-                paint.line([(x, 0), (x, band.size[1])], fill=tuple(round(c + (d - c) * fade) for c, d in zip(colour, bar)))
-        shape = Image.new("L", plate.size, 0)
-        ImageDraw.Draw(shape).rounded_rectangle([plan["bar"] * k, 0, bar_end * k, HEIGHT * k], radius=corner * k, fill=255)
-        plate.paste(band, (0, 0), shape)
+                paint.line([(x, 0), (x, band.size[1])], fill=tuple(round(c + (d - c) * fade) for c, d in zip(colour, shade(x))))
+        fill_bar(band)
         reads = lambda c: INK if _light(c) else WHITE
         home_ink, away_ink = reads(_rgb(home["color"])), reads(_rgb(away["color"]))
-        box(score, 6, plan["score_wide"], HEIGHT - 12, inner, bar)                              # the score's box
+        if first == second:
+            box(score, 6, plan["score_wide"], HEIGHT - 12, inner, bar)                          # the score's box
     text(plan["home"], home["code"], NAME_SIZE, home_ink, "H")
     text(plan["home_digit"], str(home_score), DIGIT_SIZE, digits, "0")
     box(plan["dash"] - 4.5, mid - 1.6, 9, 3.2, 1, digits)              # the dash, drawn: a typeface's own sits where it likes

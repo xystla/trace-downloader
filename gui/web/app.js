@@ -2936,6 +2936,8 @@ function edRender() {
   if (document.activeElement !== el("edSize")) el("edSize").value = Math.round(ed.project.bug.size * 100);
   el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
   el("edBarColor").value = ed.project.bug.color;
+  el("edBarFade").checked = !!ed.project.bug.color2;
+  if (ed.project.bug.color2) el("edBarColor2").value = ed.project.bug.color2;      // when off, the swatch keeps the last choice
   for (const [id, field] of ED_GRADE) {
     if (document.activeElement !== el(id)) el(id).value = ed.project.grade[field];
     el(id).nextElementSibling.textContent = (ed.project.grade[field] > 0 ? "+" : "") + ed.project.grade[field];
@@ -3018,7 +3020,10 @@ for (const [id, field] of ED_SLIDERS) {
   el(id).oninput = () => { ed.project.bug[field] = Number(el(id).value); edLookSoon(); };
 }
 el("edBarColor").oninput = () => { ed.project.bug.color = el("edBarColor").value; edLookSoon(); };
-el("edBarReset").onclick = (e) => { e.preventDefault(); ed.project.bug.color = "#2d0a3c"; edSave(); };
+el("edBarReset").onclick = (e) => { e.preventDefault(); Object.assign(ed.project.bug, { color: "#2d0a3c", color2: "" }); edSave(); };
+// A second colour: the background fades from the first (left) to it (right).
+el("edBarFade").onchange = () => { ed.project.bug.color2 = el("edBarFade").checked ? el("edBarColor2").value : ""; edSave(); };
+el("edBarColor2").oninput = () => { el("edBarFade").checked = true; ed.project.bug.color2 = el("edBarColor2").value; edLookSoon(); };
 
 document.querySelectorAll(".ed-team").forEach((row) => {
   const side = row.dataset.side;
