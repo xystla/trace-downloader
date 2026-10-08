@@ -183,3 +183,19 @@ def test_marks_that_do_not_make_sense_are_never_exported(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="Mark where the game ends."):
         export.export(broken, ["/v/game.mp4"], tmp_path / "out.mp4")
     assert ran == {} and list(tmp_path.iterdir()) == []
+
+
+def test_the_faster_quality_never_starves_the_picture(monkeypatch, tmp_path):
+    # A source with a very low bitrate (little detail) still gets enough for the
+    # score bug's lettering to stay sharp.
+    monkeypatch.setattr(export.sys, "platform", "darwin")
+    ran = _fake_export(monkeypatch)
+    monkeypatch.setattr(export, "video_info", lambda path: {"duration": 5000.0, "width": 1920, "height": 1080,
+                                                           "bitrate": 232, "audio": True})
+    export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4", "faster")
+    asked = int(ran["cmd"][ran["cmd"].index("-b:v") + 1].rstrip("k"))
+    assert 4000 <= asked <= 5000                        # about 0.07 bits a pixel a frame at 1080 lines
+    monkeypatch.setattr(export, "video_info", lambda path: {"duration": 5000.0, "width": 1920, "height": 1080,
+                                                           "bitrate": 5183, "audio": True})
+    export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out2.mp4", "faster")
+    assert ran["cmd"][ran["cmd"].index("-b:v") + 1] == "6737k"      # a normal source: 1.3 times its own

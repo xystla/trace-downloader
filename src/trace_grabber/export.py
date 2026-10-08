@@ -175,7 +175,11 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
                                         encoding="utf-8")
         dest.parent.mkdir(parents=True, exist_ok=True)
         with complete_or_nothing(dest) as part:
+            # The hardware encoder is given a bitrate to aim for: 1.3 times the
+            # source's, but never so little that the bug's lettering goes soft
+            # (about 0.07 bits a pixel a frame, some 4.4 Mbit/s at 1080 lines).
+            enough = infos[0]["width"] * infos[0]["height"] * 30 * 0.07 / 1000 / 1.3
             cmd = build_cmd(parts, [name for name, _, _ in plates], part.resolve(), quality,
-                            infos[0]["bitrate"], audio)
+                            max(infos[0]["bitrate"] or 0, enough), audio)
             cmd[0] = ffmpeg_path()
             run(cmd, total, work, progress_cb, on_proc)
