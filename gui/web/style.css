@@ -585,6 +585,16 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-look input[type=color] { width:44px; height:30px; margin:0; }
 .ed-look button { margin:0; padding:4px 10px; font-size:12px; }
 .ed-legend { flex-wrap:wrap; margin-top:-4px; }
+/* The score bug's settings, folded away by kind until wanted. */
+.ed-fold { margin-top:10px; border-top:1px solid var(--border); }
+.ed-fold > summary { display:flex; align-items:center; justify-content:space-between; padding:10px 2px 2px; cursor:pointer;
+  font-size:13px; font-weight:600; color:var(--text); list-style:none; user-select:none; }
+.ed-fold > summary::-webkit-details-marker { display:none; }
+.ed-fold > summary::after { content:""; width:7px; height:7px; margin-right:4px; border-right:2px solid var(--muted);
+  border-bottom:2px solid var(--muted); transform:rotate(45deg); transition:transform .15s; }
+.ed-fold[open] > summary::after { transform:rotate(-135deg); }
+.ed-fold > summary:hover { color:var(--accent-text, var(--accent)); }
+.ed-fold[open] { padding-bottom:4px; }
 .ed-saved select, .ed-saved input[type=text] { grid-column:auto; margin:0; width:100%; min-width:0; }
 .ed-saved input[type=text] { padding:8px 10px; font-size:13px; }
 #edLookNote { margin:6px 0 0; font-size:12px; }

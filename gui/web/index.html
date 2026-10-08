@@ -272,19 +272,29 @@
             <div class="ed-look ed-saved"><span>Save as</span><input type="text" id="edLookName" maxlength="40" placeholder="Name this look" aria-label="A name for the score bug look as it is now"><button type="button" id="edLookSave" title="Save the score bug as it is now, to use on other games.">Save</button></div>
             <p id="edLookNote" class="caption" hidden></p>
             <label class="ed-look"><span>Design</span><select id="edDesign" aria-label="The score bug's design"></select></label>
-            <div class="ed-look"><span>League crest</span><span class="ed-crest-note">Stands to the left of the bug.</span><button type="button" class="ed-crest" data-crest="league"></button></div>
-            <label class="switch ed-animate"><span>Shadow under crests<small>A slight drop shadow, to lift a crest off the bug and the picture.</small></span><input type="checkbox" id="edCrestShadow"></label>
-            <label class="ed-look"><span>Font</span><select id="edFont" aria-label="The score bug's font"></select></label>
-            <label class="ed-look"><span>Size</span><input type="range" id="edSize" min="50" max="200" step="5" value="100" aria-label="The score bug's size"><output id="edSizeNow">100%</output></label>
-            <label class="ed-look"><span>Colour</span><input type="color" id="edBarColor" aria-label="The score bug's background colour"><button type="button" id="edBarReset">Reset</button></label>
-            <label class="ed-look ed-fade"><span>Fade to</span><input type="color" id="edBarColor2" value="#7a1fa2" aria-label="The second colour the score bug's background fades to"><input type="checkbox" id="edBarFade" aria-label="Fade the background from the first colour to the second"></label>
-            <label class="switch ed-animate"><span>Slide in and out<small>The bug slides in from the left as the game starts and away as it ends.</small></span><input type="checkbox" id="edAnimate"></label>
-            <label class="ed-look"><span>Timer side</span><select id="edTimerSide" aria-label="Which side of the score bug the timer is on"><option value="left">Left</option><option value="right">Right</option></select></label>
-            <label class="switch ed-animate"><span>Tall timer box<small>As tall as the whole bar, not just the score's box.</small></span><input type="checkbox" id="edTimerFull"></label>
-            <label class="ed-look"><span>Timer digits</span><input type="range" id="edTimerText" min="50" max="100" step="5" aria-label="The timer digits' size, against the score's"><output>Small to full</output></label>
-            <label class="ed-look"><span>Timer box</span><input type="range" id="edClockRoom" min="0" max="100" step="5" aria-label="How wide the timer's box is"><output>Narrow to wide</output></label>
-            <label class="ed-look"><span>Team colours</span><input type="range" id="edStrip" min="3" max="40" step="1" aria-label="How wide the team colour strips are"><output>Thin to wide</output></label>
-            <label class="ed-look"><span>Corners</span><input type="range" id="edRound" min="0" max="23" step="1" aria-label="How round the corners are"><output>Square to round</output></label>
+            <details class="ed-fold" data-fold="text"><summary>Font and size</summary>
+              <label class="ed-look"><span>Font</span><select id="edFont" aria-label="The score bug's font"></select></label>
+              <label class="ed-look"><span>Size</span><input type="range" id="edSize" min="50" max="200" step="5" value="100" aria-label="The score bug's size"><output id="edSizeNow">100%</output></label>
+            </details>
+            <details class="ed-fold" data-fold="colours"><summary>Colours</summary>
+              <label class="ed-look"><span>Colour</span><input type="color" id="edBarColor" aria-label="The score bug's background colour"><button type="button" id="edBarReset">Reset</button></label>
+              <label class="ed-look ed-fade"><span>Fade to</span><input type="color" id="edBarColor2" value="#7a1fa2" aria-label="The second colour the score bug's background fades to"><input type="checkbox" id="edBarFade" aria-label="Fade the background from the first colour to the second"></label>
+              <label class="ed-look"><span>Team colours</span><input type="range" id="edStrip" min="3" max="40" step="1" aria-label="How wide the team colour strips are"><output>Thin to wide</output></label>
+            </details>
+            <details class="ed-fold" data-fold="timer"><summary>Timer</summary>
+              <label class="ed-look"><span>Timer side</span><select id="edTimerSide" aria-label="Which side of the score bug the timer is on"><option value="left">Left</option><option value="right">Right</option></select></label>
+              <label class="switch ed-animate"><span>Tall timer box<small>As tall as the whole bar, not just the score's box.</small></span><input type="checkbox" id="edTimerFull"></label>
+              <label class="ed-look"><span>Timer digits</span><input type="range" id="edTimerText" min="50" max="100" step="5" aria-label="The timer digits' size, against the score's"><output>Small to full</output></label>
+              <label class="ed-look"><span>Timer box</span><input type="range" id="edClockRoom" min="0" max="100" step="5" aria-label="How wide the timer's box is"><output>Narrow to wide</output></label>
+            </details>
+            <details class="ed-fold" data-fold="shape"><summary>Corners and motion</summary>
+              <label class="ed-look"><span>Corners</span><input type="range" id="edRound" min="0" max="23" step="1" aria-label="How round the corners are"><output>Square to round</output></label>
+              <label class="switch ed-animate"><span>Slide in and out<small>The bug slides in from the left as the game starts and away as it ends.</small></span><input type="checkbox" id="edAnimate"></label>
+            </details>
+            <details class="ed-fold" data-fold="crests"><summary>Crests</summary>
+              <div class="ed-look"><span>League crest</span><span class="ed-crest-note">Stands to the left of the bug.</span><button type="button" class="ed-crest" data-crest="league"></button></div>
+              <label class="switch ed-animate"><span>Shadow under crests<small>A slight drop shadow, to lift a crest off the bug and the picture.</small></span><input type="checkbox" id="edCrestShadow"></label>
+            </details>
           </div>
           <div class="card ed-card">
             <h3>Marks</h3>
