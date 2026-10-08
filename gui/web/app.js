@@ -2988,7 +2988,7 @@ document.querySelectorAll(".ed-crest").forEach((b) => {
 // The score bug's settings are folded away by kind; which folds are open is remembered.
 document.querySelectorAll(".ed-fold").forEach((fold) => {
   const key = "edFold2:" + fold.dataset.fold;
-  // Teams starts open and the rest closed; after that, as they were left.
+  // Teams and Export start open and the rest closed; after that, as they were left.
   fold.open = fold.dataset.open === "yes";
   try { const kept = localStorage.getItem(key); if (kept) fold.open = kept === "open"; } catch (e) { /* as it starts */ }
   fold.addEventListener("toggle", () => {
