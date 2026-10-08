@@ -190,10 +190,11 @@ main { flex:1; min-width:0; overflow-y:auto; }
 .score.loss { color:var(--danger); background:var(--danger-soft); }
 .action { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; }
 .game > .action > button:not(.icon-btn), .game > .action > .pair > button:not(.icon-btn) { padding:8px 11px; font-size:13px; }
-/* Open Folder with the small "Edit game" scissors beside it. */
+/* Open Folder, with "Edit game" beside it on the game's own page only: in the
+   list of games the Editor is a click away in the sidebar. */
 .action > .pair { display:flex; gap:6px; min-width:0; }
 .action > .pair > button:first-child { flex:1 1 auto; min-width:0; }
-.edit-game > span { display:none; }
+.edit-game { display:none; }
 button.done { color:var(--accent-text); }
 .state { display:inline-flex; align-items:center; gap:5px; font-size:13px; padding:0 6px; }
 .state.saved { color:var(--accent-text); }
@@ -258,7 +259,7 @@ button.done { color:var(--accent-text); }
 .games.is-single .game > .action > button, .games.is-single .game > .action > .pair > button { padding:13px 12px; font-size:15px; }
 .games.is-single .game > .action > .pair { flex:2 1 0; gap:10px; }
 .games.is-single .game > .action > .pair > button { flex:1 1 0; }
-.games.is-single .edit-game > span { display:inline; }
+.games.is-single .edit-game { display:inline-flex; }
 .games.is-single .game > .action > .state { justify-content:center; }
 .games:not(.is-single) .game { cursor:pointer; }
 /* Clicking a game opens its own page: say so on the thumbnail when pointed at. */
@@ -595,6 +596,11 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-fold[open] > summary::after { transform:rotate(-135deg); }
 .ed-fold > summary:hover { color:var(--accent-text, var(--accent)); }
 .ed-fold[open] { padding-bottom:4px; }
+/* A whole card that folds: its heading is the summary. */
+.ed-fold-card { margin-top:0; border-top:0; }
+.ed-fold-card > summary { padding:0; font-size:inherit; font-weight:600; color:var(--muted); }
+.ed-fold-card[open] > summary { margin-bottom:6px; }
+.ed-fold-foot { display:flex; justify-content:flex-end; margin-top:10px; }
 .ed-saved select, .ed-saved input[type=text] { grid-column:auto; margin:0; width:100%; min-width:0; }
 .ed-saved input[type=text] { padding:8px 10px; font-size:13px; }
 #edLookNote { margin:6px 0 0; font-size:12px; }
@@ -670,3 +676,10 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-export p { margin:0; font-size:13px; }
 .ed-now { margin:0; font-variant-numeric:tabular-nums; }
 #edTimeline .tl-track { cursor:pointer; }
+
+/* A mark's time: looks like text, is a button, becomes a box to type in. */
+button.ed-when { margin:0; padding:1px 4px; border:1px solid transparent; border-radius:6px; background:none; font:inherit; color:inherit;
+  font-variant-numeric:tabular-nums; cursor:text; justify-content:flex-start; }
+button.ed-when:hover { border-color:var(--border-strong); background:var(--raised); }
+button.ed-when.bad { border-color:var(--danger); }
+.ed-when-box { margin:0; padding:1px 4px; width:64px; font:inherit; font-variant-numeric:tabular-nums; border-radius:6px; }

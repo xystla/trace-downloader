@@ -1432,8 +1432,7 @@ function setSaved(g, id) {
     b.classList.add("done");
     return b;
   };
-  // "Edit game" shares Open Folder's place as a small scissors button, so a card
-  // keeps to two rows of buttons; on the game's own page, where there is room, it is spelled out.
+  // "Edit game" is offered on the game's own page, beside Open Folder (see .edit-game).
   const edit = node("button", "icon-btn edit-game");
   edit.innerHTML = icon("cut");
   edit.append(node("span", "", "Edit game"));
@@ -3204,12 +3203,49 @@ if (window.ResizeObserver) {
   }).observe(el("edButtons"));
 }
 
+// A typed time: "31:22", "1:16:50", "31:22.5", or just minutes ("31"). null if it isn't one.
+function edReadTime(text) {
+  const parts = String(text).trim().split(":").map((p) => p.trim());
+  if (!parts.length || parts.length > 3 || parts.some((p) => !/^\d+(\.\d+)?$/.test(p))) return null;
+  const n = parts.map(Number);
+  if (n.length === 1) return n[0] * 60;
+  if (n[n.length - 1] >= 60 || (n.length === 3 && n[1] >= 60)) return null;
+  return n.length === 2 ? n[0] * 60 + n[1] : n[0] * 3600 + n[1] * 60 + n[2];
+}
+
 function edDrawMarks() {
   const rows = ed.project.marks.map((m) => {
     const row = node("div", "ed-mark");
     const move = (by) => { m.t = Math.max(0, Math.min(ed.duration, m.t + by)); edSeek(m.t); edSave(); };
     const small = (text, title, onclick) => { const b = node("button", null, text); b.title = title; b.onclick = onclick; return b; };
-    row.append(node("span", "ed-when", clock(m.t)), node("span", "ed-what", edLabel(m.kind)),
+    // The time can be typed: click it, write the moment (31:22), and press Enter.
+    const when = node("button", "ed-when", clock(m.t));
+    when.title = "Click to type this mark's time, like 31:22.";
+    when.onclick = () => {
+      const box = node("input", "ed-when-box");
+      box.type = "text";
+      box.value = clock(m.t);
+      box.setAttribute("aria-label", "This mark's time, as minutes and seconds");
+      let done = false;
+      const finish = (keep) => {
+        if (done) return;
+        done = true;
+        const t = keep ? edReadTime(box.value) : null;
+        if (t == null || Math.abs(t - m.t) < 0.0005) { box.replaceWith(when); when.classList.toggle("bad", keep && t == null); return; }
+        m.t = Math.max(0, Math.min(ed.duration, t));
+        edSeek(m.t);
+        edSave();
+      };
+      box.onkeydown = (e) => {
+        if (e.key === "Enter") { e.preventDefault(); finish(true); }
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+      };
+      box.onblur = () => finish(true);
+      when.replaceWith(box);
+      box.focus();
+      box.select();
+    };
+    row.append(when, node("span", "ed-what", edLabel(m.kind)),
       small("Jump", "Show this moment.", () => edSeek(m.t)),
       small("−1s", "A second earlier.", () => move(-1)), small("+1s", "A second later.", () => move(1)),
       small("−1f", "A frame earlier.", () => move(-FRAME)), small("+1f", "A frame later.", () => move(FRAME)),
