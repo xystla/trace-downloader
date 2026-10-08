@@ -1,0 +1,3 @@
+# The download page (site/) is plain files: nothing to build.
+[build]
+  publish = "site"
