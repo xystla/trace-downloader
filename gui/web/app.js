@@ -2853,6 +2853,7 @@ async function openEditor(id) {
   el("edError").hidden = !!(res && res.ok);
   el("edError").textContent = res && res.ok ? "" : (res && res.error) || "The game couldn't be opened.";
   el("edBody").hidden = !(res && res.ok);
+  if (res && res.ok) el("edSide").prepend(el("edGame")); else el("edHead").append(el("edGame"));
   el("edHint").hidden = !!(res && res.ok);
   if (!(res && res.ok)) { ed.id = null; edListGames(); return; }
   Object.assign(ed, { id, project: res.project, segments: res.segments, problems: res.problems,
@@ -2926,6 +2927,7 @@ function edRender() {
   el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
   el("edBarColor").value = ed.project.bug.color;
   el("edTimerSide").value = ed.project.bug.timer;
+  el("edAnimate").checked = ed.project.bug.animate;
   for (const [id, field] of ED_SLIDERS) if (document.activeElement !== el(id)) el(id).value = ed.project.bug[field];
   edParts.forEach((draw) => draw());
 }
@@ -2948,6 +2950,7 @@ function edOfferLooks(fonts, sizes) {
   Object.assign(el("edSize"), { min: Math.round(sizes[0] * 100), max: Math.round(sizes[1] * 100) });
 }
 el("edFont").onchange = () => { ed.project.bug.font = el("edFont").value; edSave(); };
+el("edAnimate").onchange = () => { ed.project.bug.animate = el("edAnimate").checked; edSave(); };
 el("edTimerSide").onchange = () => { ed.project.bug.timer = el("edTimerSide").value; edSave(); };
 let edLookWait = 0;
 const edLookSoon = () => {                   // while dragging, save (and redraw) only now and then
@@ -3162,6 +3165,16 @@ function edDrawBug() {
   const lay = ed.layout;
   // The plate is as wide as the names need, so only its height is set here.
   Object.assign(bug.style, { left: lay.x * k + "px", top: lay.y * k + "px", height: lay.height * k + "px" });
+  // Sliding in as the game starts and out as it ends, as the export does.
+  let gone = 0;
+  if (lay.slide) {
+    const [come, go] = lay.slide;
+    const total = ed.problems.length ? 0 : ed.segments.reduce((sum, [a, b]) => sum + (b - a), 0);
+    gone = Math.max(0, 1 - out / come) ** 3;
+    if (total >= 3) gone += Math.min(1, Math.max(0, (out - (total - go)) / go)) ** 3;
+    else if (total) gone = 0;
+  }
+  bug.style.transform = gone ? `translateX(${-(lay.x + lay.width) * k * gone}px)` : "";
   const [home, away] = edScoreAt(edClock());
   const img = bug.querySelector("img");
   const want = `${home}-${away}`;

@@ -39,8 +39,9 @@ ROUNDS = (0, 23)                # corners: square, up to the bug's ends being ha
 NAME, NAME_SIZE, NAME_PAD = 95, 28, 14      # a name's room (at least), its type size, the space at its sides
 DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
 WHITE, INK = (255, 255, 255), (28, 18, 38)
-USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left"}
+USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True}
 CLOCK_COLOR = "#1c1226"
+SLIDE = (0.6, 0.5)              # seconds the bug takes to slide in as the game starts, and out as it ends
 _SMOOTH = 3                     # drawn this many times bigger, then shrunk, for smooth edges
 _FINE = 8                       # type is measured this many times bigger, for fractions of a pixel
 
@@ -71,7 +72,8 @@ def style(bug) -> dict:
             "color": color.lower() if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color) else USUAL["color"],
             "clock": whole("clock", 0, 100),            # how roomy the timer's box is: 0 tight, 100 wide
             "strip": whole("strip", *STRIPS), "round": whole("round", *ROUNDS),
-            "timer": "right" if bug.get("timer") == "right" else "left"}       # which side of the bar the timer is on
+            "timer": "right" if bug.get("timer") == "right" else "left",       # which side of the bar the timer is on
+            "animate": bug.get("animate") is not False}
 
 
 @lru_cache(maxsize=64)
@@ -176,7 +178,8 @@ def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = Non
     the plate. Slots are the centre of each glyph, measured from the plate's
     left edge; y is the vertical centre of each glyph's ink, which is what the
     export sets; page_y is where the page puts the middle of each glyph's line
-    to get the same."""
+    to get the same. slide is how long the bug takes to slide in from the
+    left edge and out again, or None when it simply sits there."""
     bug = style(bug)
     blank = {"code": ""}
     home, away = home or blank, away or blank
@@ -186,7 +189,7 @@ def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = Non
     type_size, y = round(DIGIT_SIZE * k), round(HEIGHT / 2 * k)
     face = _face(bug["font"], type_size)
     return {"x": round(ORIGIN[0] * scale), "y": round(ORIGIN[1] * scale), "width": width, "height": height,
-            "font": bug["font"],
+            "font": bug["font"], "slide": list(SLIDE) if bug["animate"] else None,
             "clock": {"slots": [round(x * k) for x in plan["slots"]], "y": y,
                       "page_y": [round(y - _middle(face, glyph), 1) for glyph in "00:00"],
                       "x": round(plan["clock_x"] * k), "width": round(plan["clock"] * k),

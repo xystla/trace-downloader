@@ -226,7 +226,7 @@
       </div>
     </section>
     <section id="editor" class="view" hidden>
-      <div class="row">
+      <div class="row" id="edHead">
         <h2>Editor</h2>
         <span class="spacer"></span>
         <select id="edGame" aria-label="Game to edit"></select>
@@ -244,7 +244,7 @@
           <div id="edTimeline" class="timeline"></div>
           <div id="edLegend" class="legend ed-legend"></div>
         </div>
-        <div class="ed-side">
+        <div class="ed-side" id="edSide">
           <div class="card ed-card">
             <h3>Teams</h3>
             <div class="ed-team" data-side="home">
@@ -263,6 +263,7 @@
             <label class="ed-look"><span>Font</span><select id="edFont" aria-label="The score bug's font"></select></label>
             <label class="ed-look"><span>Size</span><input type="range" id="edSize" min="50" max="200" step="5" value="100" aria-label="The score bug's size"><output id="edSizeNow">100%</output></label>
             <label class="ed-look"><span>Colour</span><input type="color" id="edBarColor" aria-label="The score bug's background colour"><button type="button" id="edBarReset">Reset</button></label>
+            <label class="switch ed-animate"><span>Slide in and out<small>The bug slides in from the left as the game starts and away as it ends.</small></span><input type="checkbox" id="edAnimate"></label>
             <label class="ed-look"><span>Timer side</span><select id="edTimerSide" aria-label="Which side of the score bug the timer is on"><option value="left">Left</option><option value="right">Right</option></select></label>
             <label class="ed-look"><span>Timer box</span><input type="range" id="edClockRoom" min="0" max="100" step="5" aria-label="How wide the timer's box is"><output>Narrow to wide</output></label>
             <label class="ed-look"><span>Team colours</span><input type="range" id="edStrip" min="3" max="40" step="1" aria-label="How wide the team colour strips are"><output>Thin to wide</output></label>

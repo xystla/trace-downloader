@@ -73,6 +73,21 @@ def test_the_graph_fades_joins_overlays_and_writes_the_clock():
     assert r"text='%{eif\:mod(floor(t)\,10)\:d}':x=133-text_w/2" in clock
 
 
+def test_the_bug_slides_in_at_the_start_and_out_at_the_end():
+    lay = {**LAY, "slide": [0.6, 0.5]}
+    lines = export.filter_script(PIECES, PLATES, lay, "font.ttf", total=1200.0).strip().split(";\n")
+    # It comes from off the left edge (60 + 418 away) as the game starts, and leaves that way in the last half second.
+    move = "478*(pow(max(0,1-t/0.6),3)+pow(clip((t-1199.500)/0.5,0,1),3))"
+    assert lines[5] == f"[cv][2:v]overlay=x='60-{move}':y=48:enable='between(t,0.000,290.000)'[o0]"
+    assert lines[6] == f"[o0][3:v]overlay=x='60-{move}':y=48:enable='between(t,290.000,1201.000)'[o1]"
+    assert lines[7].count(f"-text_w/2-{move}'") == 5 and f"x='79-text_w/2-{move}':y=71-text_h/2" in lines[7]
+    # Not when the edit says no, when the length isn't known, or when there is hardly any game.
+    for still in (export.filter_script(PIECES, PLATES, {**LAY, "slide": None}, "font.ttf", total=1200.0),
+                  export.filter_script(PIECES, PLATES, lay, "font.ttf"),
+                  export.filter_script(PIECES, PLATES, lay, "font.ttf", total=2.0)):
+        assert "pow(" not in still and "overlay=60:48:enable=" in still and ":x=79-text_w/2:y=71" in still
+
+
 def test_a_piece_with_nothing_to_fade_and_a_video_with_no_sound():
     script = export.filter_script([Piece(Path("/v/g.mp4"), 5, 60, False, False)], [("plate0.png", 0, 61)], LAY, "font.ttf",
                                   size=(1280, 720), fps=29.97, audio=False)
@@ -171,7 +186,7 @@ def test_the_bug_is_scaled_for_a_smaller_picture(monkeypatch, tmp_path):
     ran = _fake_export(monkeypatch, height=720)
     export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4")
     assert ran["plate_size"] == scorebug.size(PROJECT["home"], PROJECT["away"], 720 / 1080) and ran["plate_size"][1] == 38
-    assert "overlay=40:32" in ran["graph"] and "fontsize=24" in ran["graph"]
+    assert "overlay=x='40-" in ran["graph"] and ":y=32:enable=" in ran["graph"] and "fontsize=24" in ran["graph"]
 
 
 def test_the_export_uses_the_edit_own_size_and_typeface(monkeypatch, tmp_path):
@@ -185,7 +200,10 @@ def test_the_export_uses_the_edit_own_size_and_typeface(monkeypatch, tmp_path):
     lay = scorebug.layout(1.0, PROJECT["home"], PROJECT["away"], styled["bug"])
     assert ran["font"] == scorebug.font_path("anton").read_bytes()
     assert ran["plate_size"] == (lay["width"], lay["height"]) and lay["height"] == 86
-    assert f"fontsize={lay['clock']['size']}" in ran["graph"] and f"x={60 + lay['clock']['slots'][0]}-text_w/2" in ran["graph"]
+    assert f"fontsize={lay['clock']['size']}" in ran["graph"] and f"x='{60 + lay['clock']['slots'][0]}-text_w/2-" in ran["graph"]
+    assert "(t-1199.500)/0.5" in ran["graph"]                             # the bug leaves as the 1200 seconds of play end
+    export.export({**styled, "bug": {**styled["bug"], "animate": False}}, ["/v/game.mp4"], tmp_path / "still.mp4")
+    assert "pow(" not in ran["graph"]
 
 
 def test_a_failed_export_leaves_no_file_and_keeps_the_earlier_one(monkeypatch, tmp_path):

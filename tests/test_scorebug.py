@@ -27,7 +27,7 @@ def test_every_typeface_on_offer_is_shipped_with_its_licence():
 
 
 def test_a_bug_style_is_tidied():
-    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left"}
+    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True}
     assert scorebug.style(None) == usual == scorebug.style("junk")
     assert scorebug.style({"size": 1.4, "font": "anton"}) == {**usual, "size": 1.4, "font": "anton"}
     assert scorebug.style({"size": 9, "font": "comic"}) == {**usual, "size": 2.0}
@@ -221,6 +221,11 @@ def test_the_timer_can_sit_on_the_right_of_the_bar():
     assert _near(plate.getpixel((moved + 20, 29)), (255, 255, 255)) and plate.getpixel((moved + 20, 29))[3] > 200   # then the empty timer box
     assert plate.getpixel((moved - 5, 29))[3] == 0                                      # after a gap
     assert _near(plate.getpixel((moved - 25, 29)), (30, 90, 200))                       # which follows the away strip
+
+
+def test_the_bug_slides_in_and_out_unless_asked_not_to():
+    assert [scorebug.style({"animate": a})["animate"] for a in (False, True, None, "no", 0)] == [False, True, True, True, True]
+    assert scorebug.layout()["slide"] == [0.6, 0.5] and scorebug.layout(1.0, HOME, AWAY, {"animate": False})["slide"] is None
 
 
 def test_a_plate_can_be_handed_over_as_a_png():

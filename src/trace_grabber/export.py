@@ -70,23 +70,36 @@ def pieces(segments, files) -> list[Piece]:
     return made
 
 
-def _clock(lay: dict, font: str) -> list[str]:
+def _slide(lay: dict, total) -> str:
+    """How far left of its place the bug is at time t, as an ffmpeg expression
+    ('' when it doesn't move): it starts off the picture's left edge and eases
+    in as the game starts, and leaves the same way as it ends."""
+    if not lay.get("slide") or not total or total < 3:
+        return ""
+    come, go = lay["slide"]
+    return (f"{lay['x'] + lay['width']}*(pow(max(0,1-t/{come:g}),3)"
+            f"+pow(clip((t-{total - go:.3f})/{go:g},0,1),3))")
+
+
+def _clock(lay: dict, font: str, slide: str = "") -> list[str]:
     """Five drawtext filters, one for each glyph of MM:SS in its own slot."""
     clock = lay["clock"]
+    x = (lambda slot: f"'{lay['x'] + slot}-text_w/2-{slide}'") if slide else (lambda slot: f"{lay['x'] + slot}-text_w/2")
     glyphs = [r"%{eif\:floor(t/600)\:d}", r"%{eif\:mod(floor(t/60)\,10)\:d}", r"\:",
               r"%{eif\:floor(mod(t\,60)/10)\:d}", r"%{eif\:mod(floor(t)\,10)\:d}"]
-    return [f"drawtext=fontfile={font}:text='{glyph}':x={lay['x'] + slot}-text_w/2:y={lay['y'] + clock['y']}-text_h/2"
+    return [f"drawtext=fontfile={font}:text='{glyph}':x={x(slot)}:y={lay['y'] + clock['y']}-text_h/2"
             f":fontsize={clock['size']}:fontcolor=0x{clock['color'][1:]}"
             for glyph, slot in zip(glyphs, clock["slots"])]
 
 
 def filter_script(pieces, plates, lay: dict, font: str, size=(1920, 1080), fps: float = 30.0,
-                  audio: bool = True) -> str:
+                  audio: bool = True, total=None) -> str:
     """The filter graph. Inputs 0..n-1 are the pieces; after them come the
     plates, `plates` being [(file name, from, to)] in output time. Every piece
     is first brought to one frame rate, size and pixel format: two half files
     that differ in any of them would otherwise not join (a differing frame rate
-    makes ffmpeg write frames without end)."""
+    makes ffmpeg write frames without end). With `total` (the length of what
+    is exported) the bug slides in and out, if the layout says it does."""
     lines = []
     same = [f"fps={fps:g}", f"scale={size[0]}:{size[1]}", "format=yuv420p", "setsar=1"]
     for i, piece in enumerate(pieces):
@@ -106,12 +119,13 @@ def filter_script(pieces, plates, lay: dict, font: str, size=(1920, 1080), fps: 
         lines.append("".join(f"[v{i}][a{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=1[cv][ca]")
     else:
         lines.append("".join(f"[v{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[cv]")
-    last = "cv"
+    last, slide = "cv", _slide(lay, total)
+    place = f"x='{lay['x']}-{slide}':y={lay['y']}" if slide else f"{lay['x']}:{lay['y']}"
     for k, (_, since, until) in enumerate(plates):
-        lines.append(f"[{last}][{n + k}:v]overlay={lay['x']}:{lay['y']}"
+        lines.append(f"[{last}][{n + k}:v]overlay={place}"
                      f":enable='between(t,{since:.3f},{until:.3f})'[o{k}]")
         last = f"o{k}"
-    lines.append(f"[{last}]" + ",".join(_clock(lay, font)) + "[out]")
+    lines.append(f"[{last}]" + ",".join(_clock(lay, font, slide)) + "[out]")
     return ";\n".join(lines) + "\n"
 
 
@@ -196,7 +210,7 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
             plates.append((name, since, until))
         (work / "graph.txt").write_text(
             filter_script(parts, plates, scorebug.layout(scale, project["home"], project["away"], bug), "font.ttf",
-                          size=(infos[0]["width"], infos[0]["height"]), fps=infos[0]["fps"], audio=audio),
+                          size=(infos[0]["width"], infos[0]["height"]), fps=infos[0]["fps"], audio=audio, total=total),
             encoding="utf-8")
         dest.parent.mkdir(parents=True, exist_ok=True)
         _write_out(dest, parts, plates, work, quality, infos, audio, total, progress_cb, on_proc)
