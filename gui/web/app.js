@@ -2988,7 +2988,9 @@ document.querySelectorAll(".ed-crest").forEach((b) => {
 // The score bug's settings are folded away by kind; which folds are open is remembered.
 document.querySelectorAll(".ed-fold").forEach((fold) => {
   const key = "edFold:" + fold.dataset.fold;
-  try { fold.open = localStorage.getItem(key) === "open"; } catch (e) { /* closed */ }
+  // Some start open (the ones every edit needs), the rest closed; after that, as they were left.
+  fold.open = fold.dataset.open === "yes";
+  try { const kept = localStorage.getItem(key); if (kept) fold.open = kept === "open"; } catch (e) { /* as it starts */ }
   fold.addEventListener("toggle", () => {
     try { localStorage.setItem(key, fold.open ? "open" : "closed"); } catch (e) { /* not kept */ }
   });

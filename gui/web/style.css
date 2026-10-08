@@ -599,7 +599,8 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 /* A whole card that folds: its heading is the summary. */
 .ed-fold-card { margin-top:0; border-top:0; }
 .ed-fold-card > summary { padding:0; font-size:inherit; font-weight:600; color:var(--muted); }
-.ed-fold-card[open] > summary { margin-bottom:6px; }
+.ed-fold-card[open] > summary { margin-bottom:10px; }
+.ed-fold .ed-fold { margin-top:10px; }
 .ed-fold-foot { display:flex; justify-content:flex-end; margin-top:10px; }
 .ed-saved select, .ed-saved input[type=text] { grid-column:auto; margin:0; width:100%; min-width:0; }
 .ed-saved input[type=text] { padding:8px 10px; font-size:13px; }
