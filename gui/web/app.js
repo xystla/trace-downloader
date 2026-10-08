@@ -2921,6 +2921,133 @@ document.querySelectorAll(".ed-team").forEach((row) => {
   keep("code", row.querySelector(".ed-code"));
 });
 
+// ---- editor: marks ----
+const ED_KINDS = { start: "Game starts", break: "Break starts", resume: "Play resumes", end: "Game ends" };
+const edLabel = (kind) => ED_KINDS[kind]
+  || `Goal ${ed.project[kind === "goal_home" ? "home" : "away"].code}`;
+
+// Where a moment of the recording falls in the exported game (what the clock shows), or null in a cut.
+function edOutTime(t) {
+  let before = 0;
+  for (const [a, b] of ed.segments) {
+    if (t >= a && t <= b) return before + (t - a);
+    before += b - a;
+  }
+  return null;
+}
+
+// The score at a moment: the goals in play up to it.
+function edScoreAt(t) {
+  let home = 0, away = 0;
+  for (const m of ed.project.marks) {
+    if (m.t > t || edOutTime(m.t) == null) continue;
+    if (m.kind === "goal_home") home += 1;
+    if (m.kind === "goal_away") away += 1;
+  }
+  return [home, away];
+}
+
+function edAddMark(kind) {
+  const marks = ed.project.marks;
+  const t = Math.round(edClock() * 1000) / 1000;
+  const only = kind === "start" || kind === "end" ? marks.find((m) => m.kind === kind) : null;
+  if (only) only.t = t;                      // a game has one start and one end: marking again moves it
+  else marks.push({ id: Math.random().toString(16).slice(2, 10), kind, t });
+  edSave();
+}
+
+function edDrawButtons() {
+  el("edButtons").replaceChildren(...["start", "break", "resume", "goal_home", "goal_away", "end"].map((kind) =>
+    labelButton(kind.startsWith("goal") ? "check" : kind === "break" ? "pause" : "play", edLabel(kind),
+      "Mark this at the moment the video is showing.", () => edAddMark(kind))));
+}
+
+function edDrawMarks() {
+  const rows = ed.project.marks.map((m) => {
+    const row = node("div", "ed-mark");
+    const move = (by) => { m.t = Math.max(0, Math.min(ed.duration, m.t + by)); edSeek(m.t); edSave(); };
+    const small = (text, title, onclick) => { const b = node("button", null, text); b.title = title; b.onclick = onclick; return b; };
+    row.append(node("span", "ed-when", clock(m.t)), node("span", "ed-what", edLabel(m.kind)),
+      small("Jump", "Show this moment.", () => edSeek(m.t)),
+      small("−1s", "A second earlier.", () => move(-1)), small("+1s", "A second later.", () => move(1)),
+      small("−1f", "A frame earlier.", () => move(-FRAME)), small("+1f", "A frame later.", () => move(FRAME)),
+      small("Delete", "Remove this mark.", () => { ed.project.marks = ed.project.marks.filter((x) => x.id !== m.id); edSave(); }));
+    return row;
+  });
+  el("edMarks").replaceChildren(...(rows.length ? rows
+    : [node("p", "caption", "No marks yet. Play the game and use the buttons under the video.")]));
+}
+
+function edDrawStatus() {
+  const lines = ed.problems.map((text) => node("p", "warn", text));
+  if (!ed.problems.length) {
+    const play = ed.segments.reduce((sum, [a, b]) => sum + (b - a), 0);
+    const [home, away] = edScoreAt(ed.duration);
+    lines.push(node("p", "ok", `Ready to export: ${clock(play)} of play, final score ${home}–${away}.`));
+    if (ed.score && (ed.score.us !== home || ed.score.them !== away)) {
+      lines.push(node("p", "caption", `Trace has this game as ${ed.score.us}–${ed.score.them}.`));
+    }
+  }
+  el("edStatus").replaceChildren(...lines);
+}
+
+// The game from start to finish: your marks, the cuts shaded, and Trace's shots and
+// your bookmarks small underneath, for finding the moments to mark.
+let edReference = { id: null, marks: [] };
+async function edLoadReference() {
+  const id = ed.id;
+  const [data, bookmarks] = await Promise.all([loadStatsQuietly(), loadBookmarks(id)]);
+  if (ed.id !== id) return;
+  const game = data && data.games.find((x) => x.game_id === Number(id.split("-").pop()));
+  const moments = (game && game.timeline && game.timeline.moments) || [];
+  edReference = { id, marks: [
+    ...moments.filter((m) => m.label.endsWith("shot")).map((m) => ({ t: m.t, cls: m.label.startsWith("opp-") ? "them" : "us",
+      text: `${m.label.startsWith("opp-") ? "Opponent shot" : "Shot"} · ${clock(m.t)}` })),
+    ...bookmarks.map((b) => ({ t: b.t, cls: "mine", text: `Your bookmark · ${clock(b.t)}${b.note ? ": " + b.note : ""}` }))] };
+  edDrawTimeline();
+}
+
+function edDrawTimeline() {
+  const track = node("div", "tl-track");
+  const at = (t) => Math.min(100, (t / (ed.duration || 1)) * 100) + "%";
+  // What is cut: before the start, each break, after the end.
+  const cuts = [];
+  let from = 0;
+  for (const [a, b] of ed.segments) { if (a > from) cuts.push([from, a]); from = b; }
+  if (ed.segments.length && from < ed.duration) cuts.push([from, ed.duration]);
+  for (const [a, b] of cuts) {
+    const cut = node("div", "ed-cut");
+    cut.style.left = at(a);
+    cut.style.width = Math.max(0, ((b - a) / (ed.duration || 1)) * 100) + "%";
+    track.append(cut);
+  }
+  const mark = (t, cls, text) => {
+    const b = node("button", "tl-mark " + cls);
+    b.style.left = at(t);
+    b.title = text;
+    b.setAttribute("aria-label", text);
+    b.onclick = () => edSeek(t);
+    track.append(b);
+  };
+  if (edReference.id === ed.id) edReference.marks.forEach((m) => mark(m.t, "ref " + m.cls, m.text));
+  ed.project.marks.forEach((m) => mark(m.t, "ed " + (m.kind.startsWith("goal") ? "goal"
+    : m.kind === "start" || m.kind === "end" ? "edge" : ""), `${edLabel(m.kind)} · ${clock(m.t)}`));
+  const head = node("div", "tl-playhead");
+  head.hidden = false;
+  track.append(head);
+  el("edTimeline").replaceChildren(track);
+  edMoveHead();
+}
+
+function edMoveHead() {
+  const head = el("edTimeline").querySelector(".tl-playhead");
+  if (head) { head.style.display = "block"; head.style.left = Math.min(100, (edClock() / (ed.duration || 1)) * 100) + "%"; }
+}
+
+edParts.push(edDrawButtons, edDrawMarks, edDrawStatus, edDrawTimeline,
+  () => { if (edReference.id !== ed.id) edLoadReference(); });
+edOnTime.push(edMoveHead);
+
 const afterFirstLoad = () => {
   hideSplash();
   setTimeout(showWhatsNewOnce, 1300);          // once the splash has cleared

@@ -580,7 +580,23 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-card { padding:12px 14px 14px; }
 .ed-card h3 { margin:0 0 10px; }
 .ed-team { display:grid; grid-template-columns:36px minmax(0, 1fr) 72px; gap:8px; align-items:center; margin-top:8px; }
-.ed-team input { margin:0; }
+.ed-team input { margin:0; width:100%; }
 .ed-team input[type=color] { width:36px; height:34px; padding:2px; border-radius:8px; }
 .ed-team .ed-code { text-transform:uppercase; text-align:center; font-weight:600; }
 @media (max-width:1180px) { .ed-body { grid-template-columns:1fr; } }
+.ed-marks { display:flex; flex-direction:column; gap:4px; max-height:300px; overflow-y:auto; }
+.ed-mark { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; padding:6px; border-radius:8px; font-size:13px; }
+.ed-mark:hover { background:var(--raised); }
+.ed-mark .ed-when { font-variant-numeric:tabular-nums; color:var(--muted); min-width:44px; }
+/* The time and what it marks on one line, its buttons on the next: the panel is narrow. */
+.ed-mark .ed-what { flex:1 0 70%; min-width:0; font-weight:600; }
+.ed-mark button { padding:3px 6px; font-size:11.5px; }
+.ed-status p { margin:0 0 6px; font-size:13px; line-height:1.45; }
+.ed-status .warn { color:var(--warn); }
+.ed-status .ok { color:var(--text); font-weight:600; }
+#edTimeline .tl-track { height:40px; }
+.ed-cut { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(135deg, var(--border-strong) 0 4px, transparent 4px 8px); opacity:.55; }
+.tl-mark.ed { top:50%; width:4px; height:26px; border-radius:2px; border:0; background:var(--text); }
+.tl-mark.ed.goal { width:12px; height:12px; border-radius:50%; background:var(--accent); border:2px solid var(--raised); }
+.tl-mark.ed.edge { background:var(--accent-text); width:5px; height:34px; }
+.tl-mark.ref { top:82%; width:7px; height:7px; opacity:.75; }
