@@ -77,13 +77,15 @@ def grade_filter(grade) -> str:
     way, contrast pivots on mid grey, saturation goes from none to double."""
     grade = grade if isinstance(grade, dict) else {}
     exposure, contrast, saturation = (grade.get(key) or 0 for key in edit.GRADE)
+    # Sharpening works on detail only (luma), after the colour is set.
+    sharpen = f"unsharp=5:5:{(grade.get(edit.SHARPEN) or 0) / 100 * 1.5:.3f}:5:5:0" if grade.get(edit.SHARPEN) else ""
     if not (exposure or contrast or saturation):
-        return ""
+        return sharpen
     gain, steep, colour = 2 ** (exposure / 100), 1 + contrast / 200, 1 + saturation / 100
     # Video keeps black at 16 and white at 235 (colour around 128), so those are the fixed points.
     luma = f"clip((val-16)*{gain * steep:.5f}+{125.5 - 109.5 * steep:.3f},16,235)"
     chroma = f"clip((val-128)*{gain * steep * colour:.5f}+128,16,240)"
-    return f"lutyuv=y='{luma}':u='{chroma}':v='{chroma}'"
+    return f"lutyuv=y='{luma}':u='{chroma}':v='{chroma}'" + ("," + sharpen if sharpen else "")
 
 
 def _slide(lay: dict, total) -> str:

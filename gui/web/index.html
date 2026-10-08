@@ -243,6 +243,14 @@
           <div id="edNow" class="caption ed-now"></div>
           <div id="edTimeline" class="timeline"></div>
           <div id="edLegend" class="legend ed-legend"></div>
+          <div class="card ed-card">
+            <h3>Picture <button type="button" id="edGradeReset" class="ed-reset">Reset</button></h3>
+            <label class="ed-look"><span>Exposure</span><input type="range" id="edExposure" min="-100" max="100" step="1" value="0" aria-label="Exposure: darker to brighter"><output>0</output></label>
+            <label class="ed-look"><span>Contrast</span><input type="range" id="edContrast" min="-100" max="100" step="1" value="0" aria-label="Contrast: flatter to punchier"><output>0</output></label>
+            <label class="ed-look"><span>Saturation</span><input type="range" id="edSaturation" min="-100" max="100" step="1" value="0" aria-label="Saturation: black and white to vivid"><output>0</output></label>
+            <label class="ed-look"><span>Sharpen</span><input type="range" id="edSharpen" min="0" max="100" step="1" value="0" aria-label="Sharpen: as it is to crisp"><output>0</output></label>
+            <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="edSharp" color-interpolation-filters="sRGB"><feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="0 0 0 0 1 0 0 0 0"/></filter></svg>
+          </div>
         </div>
         <div class="ed-side" id="edSide">
           <div class="card ed-card">
@@ -269,12 +277,6 @@
             <label class="ed-look"><span>Timer box</span><input type="range" id="edClockRoom" min="0" max="100" step="5" aria-label="How wide the timer's box is"><output>Narrow to wide</output></label>
             <label class="ed-look"><span>Team colours</span><input type="range" id="edStrip" min="3" max="40" step="1" aria-label="How wide the team colour strips are"><output>Thin to wide</output></label>
             <label class="ed-look"><span>Corners</span><input type="range" id="edRound" min="0" max="23" step="1" aria-label="How round the corners are"><output>Square to round</output></label>
-          </div>
-          <div class="card ed-card">
-            <h3>Picture <button type="button" id="edGradeReset" class="ed-reset">Reset</button></h3>
-            <label class="ed-look"><span>Exposure</span><input type="range" id="edExposure" min="-100" max="100" step="1" value="0" aria-label="Exposure: darker to brighter"><output>0</output></label>
-            <label class="ed-look"><span>Contrast</span><input type="range" id="edContrast" min="-100" max="100" step="1" value="0" aria-label="Contrast: flatter to punchier"><output>0</output></label>
-            <label class="ed-look"><span>Saturation</span><input type="range" id="edSaturation" min="-100" max="100" step="1" value="0" aria-label="Saturation: black and white to vivid"><output>0</output></label>
           </div>
           <div class="card ed-card">
             <h3>Marks</h3>

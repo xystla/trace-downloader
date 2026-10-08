@@ -110,6 +110,16 @@ def test_exposure_contrast_and_saturation_do_what_they_say():
     assert chroma(200) == 128 and chroma(40) == 128
 
 
+def test_sharpening_is_applied_to_the_picture_after_its_colour():
+    assert export.grade_filter({"sharpen": 0}) == ""
+    assert export.grade_filter({"sharpen": 100}) == "unsharp=5:5:1.500:5:5:0"
+    assert export.grade_filter({"sharpen": 40}) == "unsharp=5:5:0.600:5:5:0"                 # the picture's detail, not its colour
+    both = export.grade_filter({"exposure": 100, "sharpen": 50})
+    assert both.startswith("lutyuv=") and both.endswith(",unsharp=5:5:0.750:5:5:0")
+    lines = export.filter_script(PIECES, PLATES, LAY, "font.ttf", grade={"sharpen": 50}).strip().split(";\n")
+    assert lines[5] == "[cv]unsharp=5:5:0.750:5:5:0[gv]" and lines[6].startswith("[gv][2:v]overlay=")      # the bug stays as drawn
+
+
 def test_the_bug_slides_in_at_the_start_and_out_at_the_end():
     lay = {**LAY, "slide": [0.6, 0.5]}
     lines = export.filter_script(PIECES, PLATES, lay, "font.ttf", total=1200.0).strip().split(";\n")

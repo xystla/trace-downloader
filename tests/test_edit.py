@@ -80,11 +80,11 @@ def test_team_details_are_tidied():
 
 
 def test_the_picture_settings_travel_with_the_edit():
-    assert edit.clean({})["grade"] == {"exposure": 0, "contrast": 0, "saturation": 0}
-    assert edit.clean({"grade": {"exposure": 25.4, "contrast": -40, "saturation": 300}})["grade"] == {"exposure": 25, "contrast": -40, "saturation": 100}
-    assert edit.clean({"grade": {"exposure": "x", "contrast": True, "saturation": -500}})["grade"] == {"exposure": 0, "contrast": 0, "saturation": -100}
-    assert edit.clean({"grade": "vivid"})["grade"] == {"exposure": 0, "contrast": 0, "saturation": 0}
-    assert edit.default_project("T", "R")["grade"] == {"exposure": 0, "contrast": 0, "saturation": 0}
+    plain = {"exposure": 0, "contrast": 0, "saturation": 0, "sharpen": 0}
+    assert edit.clean({})["grade"] == plain == edit.clean({"grade": "vivid"})["grade"] == edit.default_project("T", "R")["grade"]
+    assert edit.clean({"grade": {"exposure": 25.4, "contrast": -40, "saturation": 300, "sharpen": 35}})["grade"] == {"exposure": 25, "contrast": -40, "saturation": 100, "sharpen": 35}
+    assert edit.clean({"grade": {"exposure": "x", "contrast": True, "saturation": -500, "sharpen": -20}})["grade"] == {**plain, "saturation": -100}
+    assert edit.clean({"grade": {"sharpen": 400}})["grade"]["sharpen"] == 100
 
 
 def test_the_bug_settings_travel_with_the_edit():

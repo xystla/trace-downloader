@@ -48,6 +48,7 @@ def _team(team, side: str) -> dict:
 
 
 GRADE = ("exposure", "contrast", "saturation")      # each from -100 to 100; 0 leaves the picture alone
+SHARPEN = "sharpen"                                 # from 0 (as it is) to 100
 
 
 def _grade(grade) -> dict:
@@ -58,7 +59,7 @@ def _grade(grade) -> dict:
             return 0
         return int(min(100, max(-100, round(value))))
 
-    return {key: one(grade.get(key)) for key in GRADE}
+    return {**{key: one(grade.get(key)) for key in GRADE}, SHARPEN: max(0, one(grade.get(SHARPEN)))}
 
 
 def clean(project) -> dict:

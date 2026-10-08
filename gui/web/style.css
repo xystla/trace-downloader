@@ -597,6 +597,9 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-side > #edGame { width:100%; min-width:0; padding:10px 34px 10px 14px; }
 .ed-body { display:grid; grid-template-columns:minmax(0, 1fr) 340px; gap:16px; align-items:start; }
 .ed-stage { display:flex; flex-direction:column; gap:12px; min-width:0; }
+/* Beside a long column of settings the video stays in view as the page scrolls. */
+@media (min-width:1181px) { .ed-stage { position:sticky; top:12px; } }
+.ed-stage .ed-look { grid-template-columns:86px minmax(0, 1fr) 44px; }
 #edFrame video { display:block; width:100%; height:auto; aspect-ratio:16 / 9; background:#000; object-fit:contain; }
 .ed-buttons { display:flex; flex-wrap:nowrap; gap:5px; }
 .ed-buttons button { flex:1 1 auto; min-width:0; padding:8px 6px; gap:5px; font-size:13px; white-space:nowrap; }
