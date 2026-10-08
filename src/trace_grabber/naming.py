@@ -62,6 +62,7 @@ HIGHLIGHTS = "Highlights"
 PLAYER_HIGHLIGHTS = "Player Highlights"
 THUMBNAIL = "Thumbnail"
 MY_CLIPS = "My Clips"
+EDITED = "Edited"
 
 @dataclass(frozen=True)
 class GameFolders:
@@ -90,6 +91,11 @@ class GameFolders:
     def my_clips(self) -> Path:
         """Clips the person cut out of the game themselves."""
         return self.root / MY_CLIPS
+
+    @property
+    def edited(self) -> Path:
+        """The game as exported from the editor: breaks cut, score bug added."""
+        return self.root / EDITED
 
 def game_folders(output_dir: Path, date: str, opponent: str | None) -> GameFolders:
     stem = _game_stem(date, opponent)

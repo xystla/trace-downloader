@@ -383,7 +383,7 @@ def test_everything_saved_for_a_game_can_be_played_inside_the_app(api):
     saved.update(full=["/v/g.mp4"], reel=None)
     again = api.game_media("t-1")
     assert again["full"] == [{"label": "Full game", "url": "http://127.0.0.1:1/tok/g.mp4", "name": "g.mp4"}] and again["reel"] is None
-    assert api.game_media("nope") == {"full": [], "reel": None, "clips": [], "recaps": [], "mine": []}
+    assert api.game_media("nope") == {"full": [], "reel": None, "clips": [], "recaps": [], "mine": [], "edited": []}
 
 
 def test_analytics_games_carry_their_timeline(api):
@@ -1116,3 +1116,115 @@ def test_the_tray_menu_is_only_redrawn_when_what_it_says_changes(auto, tmp_path)
     auto._tray_changed()
     auto._tray_changed()
     assert redrawn == ["Downloading vs Rovers · 40%"]
+
+
+@pytest.fixture
+def editor(api, monkeypatch):
+    """The API with an editor-ready stub worker. Threads run at once, in line."""
+    from gui import app
+    api._media = SimpleNamespace(url_for=lambda path: "http://127.0.0.1:1/tok/" + str(path).rsplit("/", 1)[-1])
+    api._start = lambda work: work()
+    api.project = {"home": {"name": "T", "code": "TIG", "color": "#16a05a"},
+                   "away": {"name": "Rovers", "code": "ROV", "color": "#1e5ac8"},
+                   "marks": [{"id": "a", "kind": "start", "t": 10}, {"id": "b", "kind": "break", "t": 610},
+                             {"id": "c", "kind": "resume", "t": 700}, {"id": "d", "kind": "end", "t": 1300}]}
+    api.asked = []
+    w = api._worker
+    w.team_label = lambda: "T"
+    w.edit_open = lambda game_id, date, opponent, home, away: api.asked.append(("open", game_id, home, away)) or {
+        "project": api.project, "files": ["/v/g_half1.mp4", "/v/g_half2.mp4"], "durations": [1500.0, 1600.0], "height": 1080}
+    w.edit_save = lambda game_id, date, opponent, project: api.asked.append(("save", game_id)) or project
+    monkeypatch.setattr(app.platform_tasks, "notify", api.notes.append)
+    return api
+
+
+def test_opening_the_editor_gives_the_page_everything_it_draws_from(editor):
+    opened = editor.edit_open("t-1")
+    assert opened["ok"] is True and opened["title"] == "vs Rovers" and opened["project"] == editor.project
+    assert opened["segments"] == [[10, 610], [700, 1300]] and opened["problems"] == []
+    assert opened["sources"] == [
+        {"url": "http://127.0.0.1:1/tok/g_half1.mp4", "name": "g_half1.mp4", "start": 0, "length": 1500.0},
+        {"url": "http://127.0.0.1:1/tok/g_half2.mp4", "name": "g_half2.mp4", "start": 1500.0, "length": 1600.0}]
+    assert opened["duration"] == 3100.0 and opened["layout"]["width"] == 418 and opened["score"] is None
+    assert editor.asked == [("open", "t-1", "T", "Rovers")]
+
+
+def test_opening_the_editor_without_the_video_says_what_is_needed(editor):
+    def nothing(*args):
+        raise RuntimeError("Download the full game first: the editor works on the saved video.")
+    editor._worker.edit_open = nothing
+    assert editor.edit_open("t-1") == {"ok": False, "error": "Download the full game first: the editor works on the saved video."}
+    assert editor.edit_open("nope") == {"ok": False, "error": "game not found"}
+
+
+def test_saving_an_edit_answers_with_what_is_wrong_with_it(editor):
+    broken = {**editor.project, "marks": editor.project["marks"][:-1]}
+    saved = editor.edit_save("t-1", broken)
+    assert saved["ok"] is True and saved["problems"] == ["Mark where the game ends."] and saved["segments"] == []
+    assert editor.edit_save("t-1", editor.project)["problems"] == []
+
+
+def test_a_plate_is_drawn_for_the_page_to_preview(editor):
+    plate = editor.bug_plate({"code": "tig", "color": "#16a05a"}, {"code": "ROV", "color": "nonsense"}, 2, 1)
+    assert plate["ok"] is True and plate["url"].startswith("data:image/png;base64,iVBOR")
+    assert editor.bug_plate(None, None, "x", None)["ok"] is True          # junk is tidied, never an error
+
+
+def _events(api, name):
+    return [payload for event, payload in api.events if event == name]
+
+
+def test_an_export_reports_progress_and_then_the_finished_file(editor):
+    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None):
+        editor.asked.append(("export", game_id, quality))
+        on_progress(25, 300.0)
+        on_progress(50, 600.0)
+        return "/v/g/Edited/g (edited).mp4"
+    editor._worker.export_edit = export_edit
+    assert editor.export_start("t-1", "faster") == {"ok": True}
+    assert ("export", "t-1", "faster") in editor.asked
+    assert [(p["id"], p["percent"]) for p in _events(editor, "export_progress")] == [("t-1", 25), ("t-1", 50)]
+    assert _events(editor, "export_done") == [{"id": "t-1", "ok": True, "stopped": False, "label": "Edited game",
+                                              "url": "http://127.0.0.1:1/tok/g (edited).mp4"}]
+    assert editor.notes == ["Exported vs Rovers with the score bug"]
+    assert editor.export_start("t-1")["ok"] is True                       # and another can be started afterwards
+
+
+def test_only_one_export_runs_at_a_time(editor):
+    started = []
+    editor._start = started.append                                        # the thread is "running": never finishes here
+    editor._worker.export_edit = lambda *a, **k: "/x.mp4"
+    assert editor.export_start("t-1") == {"ok": True}
+    assert editor.export_start("t-2") == {"ok": False, "error": "Another export is running."}
+    assert len(started) == 1
+
+
+def test_stopping_an_export_ends_it_and_says_nothing_was_exported(editor):
+    stopped = []
+    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None):
+        on_proc(SimpleNamespace(terminate=lambda: stopped.append("terminated")))
+        editor.export_stop()
+        raise RuntimeError("The export didn't finish.")
+    editor._worker.export_edit = export_edit
+    editor.export_start("t-1")
+    assert stopped == ["terminated"]
+    assert _events(editor, "export_done") == [{"id": "t-1", "ok": False, "stopped": True,
+                                              "error": "Stopped. Nothing was exported."}]
+    assert editor.notes == []
+
+
+def test_an_export_that_fails_says_why(editor):
+    def export_edit(*args, **kwargs):
+        raise RuntimeError("Mark where the game ends.")
+    editor._worker.export_edit = export_edit
+    editor.export_start("t-1")
+    assert _events(editor, "export_done") == [{"id": "t-1", "ok": False, "stopped": False, "error": "Mark where the game ends."}]
+    assert editor.export_start("nope") == {"ok": False, "error": "game not found"}
+
+
+def test_the_edited_game_can_be_played_in_the_app(editor):
+    editor._worker.game_media = lambda game_id, date, opponent: {
+        "full": [], "reel": None, "clips": [], "recaps": [], "mine": [],
+        "edited": [{"label": "Edited game", "path": "/v/g/Edited/g (edited).mp4"}]}
+    assert editor.game_media("t-1")["edited"] == [{"label": "Edited game", "url": "http://127.0.0.1:1/tok/g (edited).mp4"}]
+    assert editor.game_media("nope")["edited"] == []

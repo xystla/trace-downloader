@@ -82,3 +82,7 @@ def test_a_custom_name_never_looks_like_an_unfinished_file():
     assert custom_stem("{opponent}.part", "2026-06-04", "Rovers", "T") == "Rovers-part"
     assert custom_stem("{opponent}.PART", "2026-06-04", "Rovers", "T") == "Rovers-PART"
     assert custom_stem("{team}_HALF2", "2026-06-04", "Rovers", "T") == "T-HALF2"
+
+
+def test_a_game_has_a_folder_for_its_edited_export(tmp_path):
+    assert game_folders(tmp_path, "2026-06-04", "Rovers").edited == tmp_path / "2026-06-04_vs-rovers" / "Edited"

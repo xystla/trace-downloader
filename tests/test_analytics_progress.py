@@ -517,7 +517,7 @@ def test_game_media_lists_everything_saved_for_a_game(trace, tmp_path, monkeypat
 def test_game_media_is_empty_for_a_game_with_nothing_saved(trace, tmp_path, monkeypatch):
     _recap_worker(trace, tmp_path, monkeypatch)
     assert trace.worker._game_media("demo-1", "2026-06-04", "Rovers") == {
-        "full": [], "reel": None, "clips": [], "recaps": [], "mine": []}
+        "full": [], "reel": None, "clips": [], "recaps": [], "mine": [], "edited": []}
 
 
 def test_open_folder_for_a_game_goes_to_the_most_specific_folder_there_is(trace, tmp_path, monkeypatch):

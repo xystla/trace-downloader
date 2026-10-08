@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import webbrowser
 from dataclasses import asdict
 from datetime import date, datetime
@@ -22,9 +23,10 @@ from gui.media import MediaServer
 from gui.tray import Tray
 from gui.worker import Worker
 from gui.viewmodel import games_view, connection_state, score_view, tray_status
-from trace_grabber import analytics, autodl, highlights, paths, platform_tasks, space, updates
+from trace_grabber import analytics, autodl, edit, highlights, paths, platform_tasks, scorebug, space, updates
 from trace_grabber.config import load_config
 from trace_grabber.naming import custom_stem
+from trace_grabber.progress import Rate
 
 WEB = paths.resource_dir() / "gui" / "web"
 DATA = paths.data_dir()
@@ -62,6 +64,9 @@ class Api:
         self._last_check = None          # (when, games saved) of the last automatic check
         self._expired = False            # a background check found the Trace login had lapsed
         self._tray_shown = ("", False)   # what the tray menu last drew: (status line, expired)
+        self._exporting = None           # id of the game being exported, if any
+        self._export_proc = None         # its ffmpeg, so Stop can end it
+        self._export_stopped = False
 
     def _w(self):
         if self._worker is None:
@@ -187,7 +192,7 @@ class Api:
         """Everything saved for a game as addresses the page can play: the full
         game (one part, or one per half when the halves are kept separate), the
         highlight reel, each clip, each player recap and each clip of your own."""
-        empty = {"full": [], "reel": None, "clips": [], "recaps": [], "mine": []}
+        empty = {"full": [], "reel": None, "clips": [], "recaps": [], "mine": [], "edited": []}
         g = self._game_cache.get(game_id)
         if not g:
             return empty
@@ -209,7 +214,8 @@ class Api:
                 "clips": [{"label": c["label"], "url": url(c["path"]), "half": c.get("half"),
                            "start": c.get("start")} for c in media["clips"]],
                 "recaps": [{"label": r["label"], "url": url(r["path"])} for r in media["recaps"]],
-                "mine": [{"label": c["label"], "url": url(c["path"])} for c in media.get("mine", [])]}
+                "mine": [{"label": c["label"], "url": url(c["path"])} for c in media.get("mine", [])],
+                "edited": [{"label": e["label"], "url": url(e["path"])} for e in media.get("edited", [])]}
 
     def play_game(self, game_id):
         return self._with_game_file(game_id, platform_tasks.open_file)
@@ -363,6 +369,87 @@ class Api:
             platform_tasks.copy_image(png)
         except Exception:
             return {"ok": False, "error": "Couldn't copy it to the clipboard."}
+        return {"ok": True}
+
+    # ---- the editor: marks, a score bug, and an export with both burned in ----
+    @staticmethod
+    def _start(work):
+        """Run `work` on a thread of its own (the tests run it in line)."""
+        threading.Thread(target=work, daemon=True).start()
+
+    def edit_open(self, game_id):
+        """Everything the Editor needs for a game: its edit, where its video is,
+        how its marks read, and where the score bug sits."""
+        opened, error = self._for_game(game_id, lambda g: self._w().edit_open(
+            g.id, g.date, g.opponent, self._w().team_label(), g.opponent or ""))
+        if error:
+            return {"ok": False, "error": error}
+        g = self._game_cache[game_id]
+        sources, at = [], 0
+        for path, length in zip(opened["files"], opened["durations"]):
+            sources.append({"url": self._url(path), "name": Path(path).name, "start": at, "length": length})
+            at += length
+        segments, problems = edit.outline(opened["project"]["marks"])
+        return {"ok": True, "id": game_id, "title": f"vs {g.opponent or g.title}", "project": opened["project"],
+                "segments": [list(s) for s in segments], "problems": problems, "sources": sources, "duration": at,
+                "score": score_view(g), "layout": scorebug.layout(1.0)}
+
+    def edit_save(self, game_id, project):
+        """Keep the edit; answers with it as kept and with what is wrong with its marks."""
+        kept, error = self._for_game(game_id, lambda g: self._w().edit_save(g.id, g.date, g.opponent, project))
+        if error:
+            return {"ok": False, "error": error}
+        segments, problems = edit.outline(kept["marks"])
+        return {"ok": True, "project": kept, "segments": [list(s) for s in segments], "problems": problems}
+
+    def bug_plate(self, home, away, home_score, away_score):
+        """The score bug (without its clock digits) for a score, for the page's preview."""
+        teams = edit.clean({"home": home, "away": away})
+        count = lambda n: n if isinstance(n, int) and not isinstance(n, bool) and 0 <= n < 100 else 0
+        plate = scorebug.render(teams["home"], teams["away"], count(home_score), count(away_score))
+        return {"ok": True, "url": "data:image/png;base64," + base64.b64encode(scorebug.png_bytes(plate)).decode("ascii")}
+
+    def export_start(self, game_id, quality="best"):
+        """Start exporting a game's edit. Progress and the result arrive as
+        'export_progress' and 'export_done' events."""
+        g = self._game_cache.get(game_id)
+        if not g:
+            return {"ok": False, "error": "game not found"}
+        if self._exporting:
+            return {"ok": False, "error": "Another export is running."}
+        self._exporting, self._export_stopped, self._export_proc = game_id, False, None
+        rate = Rate(window=20)
+
+        def on_progress(percent, seconds_done):
+            rate.add(time.monotonic(), seconds_done)
+            left = (seconds_done * 100 / percent - seconds_done) if percent else 0     # video seconds still to go
+            self._emit("export_progress", {"id": game_id, "percent": percent, "eta": rate.eta(left)})
+
+        def work():
+            done = {"id": game_id, "ok": False, "stopped": False}
+            try:
+                path = self._w().export_edit(g.id, g.date, g.opponent, "faster" if quality == "faster" else "best",
+                                             on_progress, lambda proc: setattr(self, "_export_proc", proc))
+                done.update(ok=True, label="Edited game", url=self._url(path))
+                platform_tasks.notify(f"Exported vs {g.opponent or g.title} with the score bug")
+            except Exception as e:
+                done.update(stopped=self._export_stopped,
+                            error="Stopped. Nothing was exported." if self._export_stopped else str(e))
+            finally:
+                self._exporting = self._export_proc = None
+                self._emit("export_done", done)
+
+        self._start(work)
+        return {"ok": True}
+
+    def export_stop(self):
+        self._export_stopped = True
+        proc = self._export_proc
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
         return {"ok": True}
 
     # ---- the library: missing videos, storage, removing a game, file names ----

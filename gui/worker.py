@@ -1,3 +1,4 @@
+import json
 import logging
 import queue
 import re
@@ -12,7 +13,7 @@ from trace_grabber.config import load_config
 from trace_grabber import accounts as accts_mod
 from trace_grabber import analytics_sync
 from trace_grabber import bookmarks as bookmark_store
-from trace_grabber import analytics, found, highlights, library, pieces, radar, recaps, segments, space
+from trace_grabber import analytics, edit, export, found, highlights, library, pieces, radar, recaps, segments, space
 from trace_grabber.analytics_sync import AnalyticsResult
 from trace_grabber import paths, platform_tasks
 from trace_grabber.platform_tasks import keep_awake
@@ -293,6 +294,62 @@ class Worker:
         unmark(acct.state_path(DATA), game_id)
         found.forget(self._found_path(), game_id)
         return moved
+
+    # ---- the editor: files only, so these answer on the caller's thread ----
+    def _edit_teams_path(self):
+        return DATA / "edit_teams.json"
+
+    def _remembered_team(self):
+        """How the person set their own team up in the editor last time, if they did."""
+        try:
+            return json.loads(self._edit_teams_path().read_text(encoding="utf-8")).get(self._active().id)
+        except (OSError, ValueError, AttributeError):
+            return None
+
+    def _remember_team(self, team):
+        try:
+            known = json.loads(self._edit_teams_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            known = {}
+        if not isinstance(known, dict):
+            known = {}
+        known[self._active().id] = team
+        self._write(self._edit_teams_path(), json.dumps(known, indent=1).encode("utf-8"))
+
+    def _edit_files(self, game_id, date, opponent):
+        files = self._game_files(date or game_id, opponent or None, game_id)
+        if not files:
+            raise RuntimeError("Download the full game first: the editor works on the saved video.")
+        return files
+
+    def edit_open(self, game_id, date, opponent, home_name, away_name):
+        """The game's edit (a new one if there is none) and its video files."""
+        files = self._edit_files(game_id, date, opponent)
+        infos = [export.video_info(f) for f in files]
+        project = edit.load(self._folders(game_id, date, opponent).root) or edit.default_project(
+            home_name, away_name, self._remembered_team())
+        return {"project": project, "files": files, "durations": [info["duration"] for info in infos],
+                "height": infos[0]["height"]}
+
+    def edit_save(self, game_id, date, opponent, project):
+        kept = edit.save(self._folders(game_id, date, opponent).root, project)
+        self._remember_team(kept["home"])
+        return kept
+
+    def export_edit(self, game_id, date, opponent, quality, on_progress=None, on_proc=None):
+        """Export the game's saved edit into its Edited folder; returns the file.
+        Raises RuntimeError (or NotEnoughSpace) with a message for the person."""
+        files = self._edit_files(game_id, date, opponent)
+        folders = self._folders(game_id, date, opponent)
+        project = edit.load(folders.root)
+        if project is None:
+            raise RuntimeError("There is no edit for this game yet.")
+        # The export can be as big as the original, and is written beside it.
+        space.check(folders.root, sum(Path(f).stat().st_size for f in files) + space.MARGIN)
+        name = re.sub(r"_half\d(-\d+)?$", "", Path(files[0]).stem)
+        dest = folders.edited / f"{name} (edited).mp4"
+        export.export(project, files, dest, quality, on_progress, on_proc)
+        return str(dest)
 
     # ---- thread internals ----
 
@@ -863,7 +920,9 @@ class Worker:
                 "recaps": [{"label": recaps.recap_label(p.name), "path": str(p)}
                            for p in sorted(recap_files, key=lambda p: (number(p), p.name))],
                 "mine": [{"label": highlights.my_clip_label(p.name), "path": str(p)}
-                         for p in highlights.my_clips(folders.my_clips)]}
+                         for p in highlights.my_clips(folders.my_clips)],
+                "edited": [{"label": "Edited game", "path": str(p)} for p in sorted(folders.edited.glob("*.mp4"))
+                           if not p.name.endswith(".part.mp4")] if folders.edited.is_dir() else []}
 
     def _clip_counts(self, games):
         """{game id: team clips already cut}, for games that have any."""
