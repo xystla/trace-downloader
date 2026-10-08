@@ -1,4 +1,4 @@
-"""The score bug: a white clock box, then a dark bar with a strip of each team's
+"""The score bug: a white clock box (as tall as the score's), then a dark bar with a strip of each team's
 colour at its ends, their names, and the score in a white box. The bar is as
 wide as the names need, and the boxes as wide as the chosen typeface's digits.
 
@@ -93,7 +93,7 @@ def _plan(home: dict, away: dict, bug: dict) -> dict:
     """Where the bug's parts sit, left to right, for these names and this look."""
     font, end = bug["font"], STRIP_AT + bug["strip"]
     # Room at the timer's sides: what was asked for, and more when the ends are round.
-    pad = 2 + bug["clock"] / 5 + max(0, bug["round"] - 10) / 4
+    pad = 2 + bug["clock"] / 5 + max(0, bug["round"] - 10) / 3
     digit = max(_wide(font, DIGIT_SIZE, d) for d in "0123456789")
     colon = _wide(font, DIGIT_SIZE, ":")
     # The clock's five glyphs (M M : S S) each have their own place, so the clock
@@ -160,11 +160,12 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         face = _face(font, round(type_size * k))
         draw.text((cx * k, mid * k - _middle(face, like)), words, font=face, fill=fill, anchor="mm")
 
-    box(plan["clock_x"], 0, plan["clock"], HEIGHT, corner, WHITE)      # the clock's box
+    inner = min(17, corner * 0.7)                      # the two white boxes are alike: as tall, as round
+    box(plan["clock_x"], 6, plan["clock"], HEIGHT - 12, inner, WHITE)  # the clock's box
     box(plan["bar"], 0, plan["bar_wide"], HEIGHT, corner, bar)
     box(plan["bar"] + STRIP_AT, 8, strip, HEIGHT - 16, strip_corner, _rgb(home["color"]))
     text(plan["home"], home["code"], NAME_SIZE, names, "H")
-    box(score, 6, plan["score_wide"], HEIGHT - 12, min(17, corner * 0.7), score_fill)      # the score
+    box(score, 6, plan["score_wide"], HEIGHT - 12, inner, score_fill)  # the score
     text(plan["home_digit"], str(home_score), DIGIT_SIZE, INK, "0")
     box(plan["dash"] - 4.5, mid - 1.6, 9, 3.2, 1, INK)                 # the dash, drawn: a typeface's own sits where it likes
     text(plan["away_digit"], str(away_score), DIGIT_SIZE, INK, "0")

@@ -196,8 +196,8 @@ def test_the_team_colour_strips_can_be_made_wider():
 def test_the_corners_go_from_square_to_fully_round():
     square, usual, pill = (scorebug.render(HOME, AWAY, 0, 0, bug={"round": r}) for r in (0, 10, 23))
     assert square.size == usual.size and pill.size[1] == usual.size[1]
-    corner = lambda plate, inset: plate.getpixel((inset, inset))[3]
-    assert corner(square, 0) > 200 and corner(usual, 0) < 40 and corner(usual, 5) > 200 and corner(pill, 6) < 40
+    corner = lambda plate, inset: plate.getpixel((plate.size[0] - 1 - inset, inset))[3]      # the bar's top right corner
+    assert corner(square, 2) > 200 and corner(usual, 0) < 40 and corner(usual, 5) > 200 and corner(pill, 6) < 40
     assert square.getpixel((square.size[0] - 3, 55))[3] > 200 and pill.getpixel((pill.size[0] - 7, 51))[3] < 40
     left, right = _score_box(square)
     assert _near(square.getpixel((left + 1, 9)), (255, 255, 255))                    # the score box is square too
@@ -205,6 +205,17 @@ def test_the_corners_go_from_square_to_fully_round():
         lay = scorebug.layout(1.0, HOME, AWAY, {"font": font, "round": 23, "clock": 0})["clock"]
         wide = max(ImageFont.truetype(str(scorebug.font_path(font)), lay["size"]).getlength(d) for d in "0123456789")
         assert lay["slots"][0] - wide / 2 >= 6, font
+
+
+def test_the_timer_box_is_as_tall_as_the_score_box():
+    for bug in ({}, {"timer": "right"}, {"round": 0}, {"size": 1.6}):
+        plate = scorebug.render(HOME, AWAY, 0, 0, bug=bug)
+        clock = scorebug.layout(1.0, HOME, AWAY, bug)["clock"]
+        left, right = _score_box(plate)
+        rows = lambda x: [y for y in range(plate.size[1]) if plate.getpixel((x, y))[3] > 128 and _near(plate.getpixel((x, y)), (255, 255, 255))]
+        timer, score = rows(clock["x"] + clock["width"] // 2), rows(left + 16)
+        assert abs(timer[0] - score[0]) <= 1 and abs(timer[-1] - score[-1]) <= 1, bug
+        assert timer[0] > 4 and plate.getpixel((clock["x"] + clock["width"] // 2, 1))[3] == 0, bug       # shorter than the bar
 
 
 def test_the_timer_can_sit_on_the_right_of_the_bar():
