@@ -2989,21 +2989,11 @@ el("edSize").oninput = () => {
 // preview works the way the export does (see grade_filter in trace_grabber/export.py):
 // exposure is a gain of up to a stop either way, contrast pivots on mid grey,
 // saturation goes from none to double.
-const ED_GRADE = [["edExposure", "exposure"], ["edContrast", "contrast"], ["edSaturation", "saturation"], ["edSharpen", "sharpen"]];
+const ED_GRADE = [["edExposure", "exposure"], ["edContrast", "contrast"], ["edSaturation", "saturation"]];
 function edGradeVideo() {
-  const g = (ed.project && ed.project.grade) || { exposure: 0, contrast: 0, saturation: 0, sharpen: 0 };
-  const parts = [];
-  if (g.exposure || g.contrast || g.saturation) {
-    parts.push(`brightness(${2 ** (g.exposure / 100)}) contrast(${1 + g.contrast / 200}) saturate(${1 + g.saturation / 100})`);
-  }
-  if (g.sharpen) {
-    // The picture plus 'a' times what a slight blur takes away from it, as the export's unsharp does.
-    const a = (g.sharpen / 100) * 1.5, edge = -a / 8, corner = -a / 16;
-    document.querySelector("#edSharp feConvolveMatrix").setAttribute("kernelMatrix",
-      [corner, edge, corner, edge, 1 + 0.75 * a, edge, corner, edge, corner].join(" "));
-    parts.push("url(#edSharp)");
-  }
-  el("edVideo").style.filter = parts.join(" ");
+  const g = (ed.project && ed.project.grade) || { exposure: 0, contrast: 0, saturation: 0 };
+  el("edVideo").style.filter = g.exposure || g.contrast || g.saturation
+    ? `brightness(${2 ** (g.exposure / 100)}) contrast(${1 + g.contrast / 200}) saturate(${1 + g.saturation / 100})` : "";
 }
 for (const [id, field] of ED_GRADE) {
   el(id).oninput = () => {
@@ -3013,7 +3003,7 @@ for (const [id, field] of ED_GRADE) {
     edLookSoon();
   };
 }
-el("edGradeReset").onclick = () => { ed.project.grade = { exposure: 0, contrast: 0, saturation: 0, sharpen: 0 }; edSave(); };
+el("edGradeReset").onclick = () => { ed.project.grade = { exposure: 0, contrast: 0, saturation: 0 }; edSave(); };
 // The timer box's room, the team colour strips' width and how round the corners are.
 const ED_SLIDERS = [["edClockRoom", "clock"], ["edStrip", "strip"], ["edRound", "round"]];
 for (const [id, field] of ED_SLIDERS) {

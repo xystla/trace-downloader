@@ -319,6 +319,27 @@ class Worker:
             known[self._active().id + ".bug"] = bug
         self._write(self._edit_teams_path(), json.dumps(known, indent=1).encode("utf-8"))
 
+    def _kept_crest(self, which):
+        """Where the person's own crest (or their league's) waits for their next game."""
+        return DATA / "edit_crests" / f"{self._active().id}-{which}.png"
+
+    def edit_crest(self, game_id, date, opponent, which, source):
+        """Set one of the game's crests from a picture file, or with no file take it
+        off. Your own team's and the league's are kept for later games as well."""
+        root = self._folders(game_id, date, opponent).root
+        if source:
+            kept = edit.set_crest(root, which, source)
+            if which != "away":
+                self._write(self._kept_crest(which), kept.read_bytes())
+        else:
+            edit.remove_crest(root, which)
+            if which != "away":
+                self._kept_crest(which).unlink(missing_ok=True)
+
+    def edit_crest_images(self, game_id, date, opponent, shown):
+        """The pictures for the crests `shown` asks for, for drawing the score bug."""
+        return edit.crest_images(self._folders(game_id, date, opponent).root, shown)
+
     def _edit_files(self, game_id, date, opponent):
         files = self._game_files(date or game_id, opponent or None, game_id)
         if not files:
@@ -329,8 +350,21 @@ class Worker:
         """The game's edit (a new one if there is none) and its video files."""
         files = self._edit_files(game_id, date, opponent)
         infos = [export.video_info(f) for f in files]
-        project = edit.load(self._folders(game_id, date, opponent).root) or edit.default_project(
-            home_name, away_name, self._remembered_team(), self._remembered_team(".bug"))
+        root = self._folders(game_id, date, opponent).root
+        project = edit.load(root)
+        if project is None:
+            project = edit.default_project(home_name, away_name, self._remembered_team(), self._remembered_team(".bug"))
+            # A new edit starts with the crests kept from the last game: yours and the league's.
+            for which in ("home", "league"):
+                if self._kept_crest(which).is_file():
+                    try:
+                        edit.set_crest(root, which, self._kept_crest(which))
+                        project["crests"][which] = True
+                    except RuntimeError:
+                        pass
+        # A crest whose picture has gone isn't shown.
+        for which in edit.CRESTS:
+            project["crests"][which] = project["crests"][which] and edit.crest_path(root, which).is_file()
         return {"project": project, "files": files, "durations": [info["duration"] for info in infos],
                 "height": infos[0]["height"]}
 
@@ -352,7 +386,8 @@ class Worker:
         space.check(folders.root, 2 * sum(Path(f).stat().st_size for f in files) + space.MARGIN)
         name = re.sub(r"_half\d(-\d+)?$", "", Path(files[0]).stem)
         dest = folders.edited / f"{name} (edited).mp4"
-        export.export(project, files, dest, quality, on_progress, on_proc)
+        export.export(project, files, dest, quality, on_progress, on_proc,
+                      crests=edit.crest_images(folders.root, project["crests"]))
         return str(dest)
 
     # ---- thread internals ----

@@ -77,15 +77,13 @@ def grade_filter(grade) -> str:
     way, contrast pivots on mid grey, saturation goes from none to double."""
     grade = grade if isinstance(grade, dict) else {}
     exposure, contrast, saturation = (grade.get(key) or 0 for key in edit.GRADE)
-    # Sharpening works on detail only (luma), after the colour is set.
-    sharpen = f"unsharp=5:5:{(grade.get(edit.SHARPEN) or 0) / 100 * 1.5:.3f}:5:5:0" if grade.get(edit.SHARPEN) else ""
     if not (exposure or contrast or saturation):
-        return sharpen
+        return ""
     gain, steep, colour = 2 ** (exposure / 100), 1 + contrast / 200, 1 + saturation / 100
     # Video keeps black at 16 and white at 235 (colour around 128), so those are the fixed points.
     luma = f"clip((val-16)*{gain * steep:.5f}+{125.5 - 109.5 * steep:.3f},16,235)"
     chroma = f"clip((val-128)*{gain * steep * colour:.5f}+128,16,240)"
-    return f"lutyuv=y='{luma}':u='{chroma}':v='{chroma}'" + ("," + sharpen if sharpen else "")
+    return f"lutyuv=y='{luma}':u='{chroma}':v='{chroma}'"
 
 
 def _slide(lay: dict, total) -> str:
@@ -205,7 +203,7 @@ def run(cmd, total: float, cwd, progress_cb=None, on_proc=None) -> None:
         raise RuntimeError("The export didn't finish.")
 
 
-def export(project: dict, files, dest, quality: str = "best", progress_cb=None, on_proc=None) -> None:
+def export(project: dict, files, dest, quality: str = "best", progress_cb=None, on_proc=None, crests=None) -> None:
     """Export the edit of a game whose video is `files` (one file, or the halves
     in order) to dest. The file appears only once it is whole; an earlier
     export there is replaced only then. Raises RuntimeError with a message for
@@ -228,10 +226,10 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
         for k, (since, home, away) in enumerate(changes):
             until = changes[k + 1][0] if k + 1 < len(changes) else total + 1
             name = f"plate{k}.png"
-            scorebug.render(project["home"], project["away"], home, away, scale, bug).save(work / name)
+            scorebug.render(project["home"], project["away"], home, away, scale, bug, crests).save(work / name)
             plates.append((name, since, until))
         (work / "graph.txt").write_text(
-            filter_script(parts, plates, scorebug.layout(scale, project["home"], project["away"], bug), "font.ttf",
+            filter_script(parts, plates, scorebug.layout(scale, project["home"], project["away"], bug, crests), "font.ttf",
                           size=(infos[0]["width"], infos[0]["height"]), fps=infos[0]["fps"], audio=audio, total=total, grade=project.get("grade")),
             encoding="utf-8")
         dest.parent.mkdir(parents=True, exist_ok=True)

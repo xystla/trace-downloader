@@ -73,6 +73,16 @@ def test_the_graph_fades_joins_overlays_and_writes_the_clock():
     assert r"text='%{eif\:mod(floor(t)\,10)\:d}':x=133-text_w/2" in clock
 
 
+def test_crests_are_drawn_into_the_export_and_make_the_bug_wider(monkeypatch, tmp_path):
+    from PIL import Image
+    ran = _fake_export(monkeypatch)
+    crests = {"home": Image.new("RGBA", (64, 64), (255, 120, 0, 255)), "league": Image.new("RGBA", (64, 64), (0, 200, 180, 255))}
+    export.export({**PROJECT, "bug": {"animate": False}}, ["/v/game.mp4"], tmp_path / "out.mp4", crests=crests)
+    lay = scorebug.layout(1.0, PROJECT["home"], PROJECT["away"], {"animate": False}, crests)
+    assert ran["plate_size"] == (lay["width"], lay["height"]) and lay["width"] > scorebug.layout(1.0, PROJECT["home"], PROJECT["away"])["width"] + 60
+    assert f":x={60 + lay['clock']['slots'][0]}-text_w/2" in ran["graph"]             # the clock has moved along with the bug
+
+
 def test_an_untouched_picture_is_left_alone():
     assert export.grade_filter(None) == "" == export.grade_filter({"exposure": 0, "contrast": 0, "saturation": 0})
     script = export.filter_script(PIECES, PLATES, LAY, "font.ttf", grade={"exposure": 0, "contrast": 0, "saturation": 0})
@@ -108,16 +118,6 @@ def test_exposure_contrast_and_saturation_do_what_they_say():
     assert luma(100) == 100 and abs(chroma(148) - 168) < 0.01 and chroma(250) == 240
     luma, chroma, _ = _lut({"exposure": 0, "contrast": 0, "saturation": -100})             # none: black and white
     assert chroma(200) == 128 and chroma(40) == 128
-
-
-def test_sharpening_is_applied_to_the_picture_after_its_colour():
-    assert export.grade_filter({"sharpen": 0}) == ""
-    assert export.grade_filter({"sharpen": 100}) == "unsharp=5:5:1.500:5:5:0"
-    assert export.grade_filter({"sharpen": 40}) == "unsharp=5:5:0.600:5:5:0"                 # the picture's detail, not its colour
-    both = export.grade_filter({"exposure": 100, "sharpen": 50})
-    assert both.startswith("lutyuv=") and both.endswith(",unsharp=5:5:0.750:5:5:0")
-    lines = export.filter_script(PIECES, PLATES, LAY, "font.ttf", grade={"sharpen": 50}).strip().split(";\n")
-    assert lines[5] == "[cv]unsharp=5:5:0.750:5:5:0[gv]" and lines[6].startswith("[gv][2:v]overlay=")      # the bug stays as drawn
 
 
 def test_the_bug_slides_in_at_the_start_and_out_at_the_end():

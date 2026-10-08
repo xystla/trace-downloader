@@ -11,6 +11,8 @@ import re
 import secrets
 from pathlib import Path
 
+from PIL import Image
+
 from . import scorebug
 
 FOLDER = "Edit"
@@ -47,8 +49,9 @@ def _team(team, side: str) -> dict:
     return {"name": name, "code": code or code_from(name, CODES[side]), "color": color}
 
 
+CRESTS = ("home", "away", "league")                 # the crests an edit can show
+CREST_SIZE = 512                                    # a crest is kept no bigger than this on its longer side
 GRADE = ("exposure", "contrast", "saturation")      # each from -100 to 100; 0 leaves the picture alone
-SHARPEN = "sharpen"                                 # from 0 (as it is) to 100
 
 
 def _grade(grade) -> dict:
@@ -59,7 +62,7 @@ def _grade(grade) -> dict:
             return 0
         return int(min(100, max(-100, round(value))))
 
-    return {**{key: one(grade.get(key)) for key in GRADE}, SHARPEN: max(0, one(grade.get(SHARPEN)))}
+    return {key: one(grade.get(key)) for key in GRADE}
 
 
 def clean(project) -> dict:
@@ -77,6 +80,8 @@ def clean(project) -> dict:
         marks.append({"id": mark_id, "kind": m["kind"], "t": round(float(t), 3)})
     return {"home": _team(project.get("home"), "home"), "away": _team(project.get("away"), "away"),
             "bug": scorebug.style(project.get("bug")), "grade": _grade(project.get("grade")),
+            "crests": {which: (project.get("crests") or {}).get(which) is True if isinstance(project.get("crests"), dict) else False
+                       for which in CRESTS},
             "marks": sorted(marks, key=lambda m: m["t"])}
 
 
@@ -85,6 +90,48 @@ def default_project(home_name, away_name, remembered=None, bug=None) -> dict:
     last time, if they did) against the opponent, with no marks yet."""
     home = remembered if isinstance(remembered, dict) else {"name": home_name or ""}
     return clean({"home": home, "away": {"name": away_name or ""}, "bug": bug, "marks": []})
+
+
+def crest_path(game_root, which: str) -> Path:
+    """Where a game's crest is kept: beside its edit."""
+    if which not in CRESTS:
+        raise ValueError(which)
+    return Path(game_root) / FOLDER / f"crest-{which}.png"
+
+
+def set_crest(game_root, which: str, source) -> Path:
+    """Keep a copy of a picture as one of the game's crests (a PNG, made smaller
+    if it is big). Raises RuntimeError with a message for the person."""
+    dest = crest_path(game_root, which)
+    try:
+        with Image.open(source) as picture:
+            picture = picture.convert("RGBA")
+            picture.thumbnail((CREST_SIZE, CREST_SIZE), Image.LANCZOS)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            part = dest.with_suffix(".part")
+            picture.save(part, format="PNG")
+        part.replace(dest)
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        raise RuntimeError("That file isn't a picture TraceDown can use. Try a PNG or JPEG.") from None
+    return dest
+
+
+def remove_crest(game_root, which: str) -> None:
+    crest_path(game_root, which).unlink(missing_ok=True)
+
+
+def crest_images(game_root, shown) -> dict:
+    """The pictures of the crests an edit shows (`shown`: which -> True), those that can be read."""
+    pictures = {}
+    for which in CRESTS:
+        if not (shown or {}).get(which):
+            continue
+        try:
+            with Image.open(crest_path(game_root, which)) as picture:
+                pictures[which] = picture.convert("RGBA")
+        except (OSError, ValueError, SyntaxError):
+            pass
+    return pictures
 
 
 def _path(game_root) -> Path:

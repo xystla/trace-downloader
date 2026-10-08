@@ -80,11 +80,51 @@ def test_team_details_are_tidied():
 
 
 def test_the_picture_settings_travel_with_the_edit():
-    plain = {"exposure": 0, "contrast": 0, "saturation": 0, "sharpen": 0}
+    plain = {"exposure": 0, "contrast": 0, "saturation": 0}
     assert edit.clean({})["grade"] == plain == edit.clean({"grade": "vivid"})["grade"] == edit.default_project("T", "R")["grade"]
-    assert edit.clean({"grade": {"exposure": 25.4, "contrast": -40, "saturation": 300, "sharpen": 35}})["grade"] == {"exposure": 25, "contrast": -40, "saturation": 100, "sharpen": 35}
-    assert edit.clean({"grade": {"exposure": "x", "contrast": True, "saturation": -500, "sharpen": -20}})["grade"] == {**plain, "saturation": -100}
-    assert edit.clean({"grade": {"sharpen": 400}})["grade"]["sharpen"] == 100
+    assert edit.clean({"grade": {"exposure": 25.4, "contrast": -40, "saturation": 300, "sharpen": 35}})["grade"] == {"exposure": 25, "contrast": -40, "saturation": 100}
+    assert edit.clean({"grade": {"exposure": "x", "contrast": True, "saturation": -500}})["grade"] == {**plain, "saturation": -100}
+
+
+def test_which_crests_are_shown_travels_with_the_edit():
+    assert edit.clean({})["crests"] == {"home": False, "away": False, "league": False}
+    assert edit.clean({"crests": {"home": True, "league": 1, "away": "yes", "ref": True}})["crests"] == {"home": True, "away": False, "league": False}
+    assert edit.clean({"crests": "all"})["crests"] == {"home": False, "away": False, "league": False}
+
+
+def test_a_crest_is_kept_with_the_game_as_a_small_png(tmp_path):
+    from PIL import Image
+    big = tmp_path / "club badge.jpg"
+    Image.new("RGB", (1600, 1200), (200, 30, 30)).save(big)
+    kept = edit.set_crest(tmp_path / "game", "home", big)
+    assert kept == tmp_path / "game" / "Edit" / "crest-home.png" == edit.crest_path(tmp_path / "game", "home")
+    with Image.open(kept) as saved:
+        assert saved.format == "PNG" and saved.mode == "RGBA" and saved.size == (512, 384)
+    pictures = edit.crest_images(tmp_path / "game", {"home": True, "away": True, "league": False})
+    assert set(pictures) == {"home"} and pictures["home"].size == (512, 384)        # only those asked for that are there
+    assert edit.crest_images(tmp_path / "game", {"home": False}) == {}
+    edit.remove_crest(tmp_path / "game", "home")
+    edit.remove_crest(tmp_path / "game", "home")                                     # twice is fine
+    assert not kept.exists() and edit.crest_images(tmp_path / "game", {"home": True}) == {}
+
+
+def test_a_file_that_is_not_a_picture_is_refused_plainly(tmp_path):
+    notes = tmp_path / "notes.txt"
+    notes.write_text("not a picture")
+    for bad in (notes, tmp_path / "missing.png"):
+        try:
+            edit.set_crest(tmp_path / "game", "league", bad)
+        except RuntimeError as e:
+            assert str(e) == "That file isn't a picture TraceDown can use. Try a PNG or JPEG."
+        else:
+            raise AssertionError("accepted")
+    assert not (tmp_path / "game" / "Edit" / "crest-league.png").exists()
+    try:
+        edit.set_crest(tmp_path / "game", "mascot", notes)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("accepted an unknown crest")
 
 
 def test_the_bug_settings_travel_with_the_edit():
