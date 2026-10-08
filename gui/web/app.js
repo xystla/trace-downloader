@@ -2935,6 +2935,11 @@ function edRender() {
   if (document.activeElement !== el("edSize")) el("edSize").value = Math.round(ed.project.bug.size * 100);
   el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
   el("edBarColor").value = ed.project.bug.color;
+  for (const [id, field] of ED_GRADE) {
+    if (document.activeElement !== el(id)) el(id).value = ed.project.grade[field];
+    el(id).nextElementSibling.textContent = (ed.project.grade[field] > 0 ? "+" : "") + ed.project.grade[field];
+  }
+  edGradeVideo();
   el("edTimerSide").value = ed.project.bug.timer;
   el("edAnimate").checked = ed.project.bug.animate;
   for (const [id, field] of ED_SLIDERS) if (document.activeElement !== el(id)) el(id).value = ed.project.bug[field];
@@ -2971,6 +2976,25 @@ el("edSize").oninput = () => {
   el("edSizeNow").textContent = el("edSize").value + "%";
   edLookSoon();
 };
+// The picture: exposure, contrast and saturation, each from -100 to 100. The
+// preview works the way the export does (see grade_filter in trace_grabber/export.py):
+// exposure is a gain of up to a stop either way, contrast pivots on mid grey,
+// saturation goes from none to double.
+const ED_GRADE = [["edExposure", "exposure"], ["edContrast", "contrast"], ["edSaturation", "saturation"]];
+function edGradeVideo() {
+  const g = (ed.project && ed.project.grade) || { exposure: 0, contrast: 0, saturation: 0 };
+  el("edVideo").style.filter = g.exposure || g.contrast || g.saturation
+    ? `brightness(${2 ** (g.exposure / 100)}) contrast(${1 + g.contrast / 200}) saturate(${1 + g.saturation / 100})` : "";
+}
+for (const [id, field] of ED_GRADE) {
+  el(id).oninput = () => {
+    ed.project.grade[field] = Number(el(id).value);
+    el(id).nextElementSibling.textContent = (ed.project.grade[field] > 0 ? "+" : "") + ed.project.grade[field];
+    edGradeVideo();                          // at once, while dragging
+    edLookSoon();
+  };
+}
+el("edGradeReset").onclick = () => { ed.project.grade = { exposure: 0, contrast: 0, saturation: 0 }; edSave(); };
 // The timer box's room, the team colour strips' width and how round the corners are.
 const ED_SLIDERS = [["edClockRoom", "clock"], ["edStrip", "strip"], ["edRound", "round"]];
 for (const [id, field] of ED_SLIDERS) {

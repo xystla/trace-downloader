@@ -585,6 +585,8 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-look input[type=color] { width:44px; height:30px; margin:0; }
 .ed-look button { margin:0; padding:4px 10px; font-size:12px; }
 .ed-legend { flex-wrap:wrap; margin-top:-4px; }
+.ed-card h3 { display:flex; align-items:center; justify-content:space-between; }
+.ed-reset { margin:0; padding:3px 10px; font-size:12px; font-weight:500; }
 .ed-animate { margin-top:12px; }
 #edTimeline { position:relative; }
 .ed-tip { position:absolute; bottom:calc(100% + 6px); transform:translateX(-50%); z-index:5; pointer-events:none; white-space:nowrap;

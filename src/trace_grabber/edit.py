@@ -47,6 +47,20 @@ def _team(team, side: str) -> dict:
     return {"name": name, "code": code or code_from(name, CODES[side]), "color": color}
 
 
+GRADE = ("exposure", "contrast", "saturation")      # each from -100 to 100; 0 leaves the picture alone
+
+
+def _grade(grade) -> dict:
+    grade = grade if isinstance(grade, dict) else {}
+
+    def one(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return 0
+        return int(min(100, max(-100, round(value))))
+
+    return {key: one(grade.get(key)) for key in GRADE}
+
+
 def clean(project) -> dict:
     """A project as the app keeps it, whatever was handed in: tidy teams, and
     only marks that are marks, in order."""
@@ -61,7 +75,8 @@ def clean(project) -> dict:
         mark_id = m["id"] if isinstance(m.get("id"), str) and m["id"] else secrets.token_hex(4)
         marks.append({"id": mark_id, "kind": m["kind"], "t": round(float(t), 3)})
     return {"home": _team(project.get("home"), "home"), "away": _team(project.get("away"), "away"),
-            "bug": scorebug.style(project.get("bug")), "marks": sorted(marks, key=lambda m: m["t"])}
+            "bug": scorebug.style(project.get("bug")), "grade": _grade(project.get("grade")),
+            "marks": sorted(marks, key=lambda m: m["t"])}
 
 
 def default_project(home_name, away_name, remembered=None, bug=None) -> dict:

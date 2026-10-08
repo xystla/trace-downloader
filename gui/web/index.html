@@ -270,6 +270,12 @@
             <label class="ed-look"><span>Corners</span><input type="range" id="edRound" min="0" max="23" step="1" aria-label="How round the corners are"><output>Square to round</output></label>
           </div>
           <div class="card ed-card">
+            <h3>Picture <button type="button" id="edGradeReset" class="ed-reset">Reset</button></h3>
+            <label class="ed-look"><span>Exposure</span><input type="range" id="edExposure" min="-100" max="100" step="1" value="0" aria-label="Exposure: darker to brighter"><output>0</output></label>
+            <label class="ed-look"><span>Contrast</span><input type="range" id="edContrast" min="-100" max="100" step="1" value="0" aria-label="Contrast: flatter to punchier"><output>0</output></label>
+            <label class="ed-look"><span>Saturation</span><input type="range" id="edSaturation" min="-100" max="100" step="1" value="0" aria-label="Saturation: black and white to vivid"><output>0</output></label>
+          </div>
+          <div class="card ed-card">
             <h3>Marks</h3>
             <div id="edMarks" class="ed-marks"></div>
           </div>

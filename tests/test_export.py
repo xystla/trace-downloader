@@ -73,6 +73,43 @@ def test_the_graph_fades_joins_overlays_and_writes_the_clock():
     assert r"text='%{eif\:mod(floor(t)\,10)\:d}':x=133-text_w/2" in clock
 
 
+def test_an_untouched_picture_is_left_alone():
+    assert export.grade_filter(None) == "" == export.grade_filter({"exposure": 0, "contrast": 0, "saturation": 0})
+    script = export.filter_script(PIECES, PLATES, LAY, "font.ttf", grade={"exposure": 0, "contrast": 0, "saturation": 0})
+    assert "lutyuv" not in script and "[cv][2:v]overlay=" in script
+
+
+def test_the_picture_is_graded_before_the_bug_goes_on():
+    lines = export.filter_script(PIECES, PLATES, LAY, "font.ttf", grade={"exposure": 100, "contrast": 0, "saturation": 0}).strip().split(";\n")
+    assert lines[5].startswith("[cv]lutyuv=") and lines[5].endswith("[gv]")
+    assert lines[6].startswith("[gv][2:v]overlay=60:48")                  # so the bug keeps its own colours
+
+
+def _lut(grade):
+    """What the grade does to a luma value and a chroma value, worked out from the filter's own formulas."""
+    text = export.grade_filter(grade)
+    parts = dict(p.split("=", 1) for p in text[len("lutyuv="):].replace("'", "").split(":"))
+    clip = lambda v, lo, hi: max(lo, min(hi, v))
+    run = lambda formula, val: eval(formula, {"val": val, "clip": clip})
+    return (lambda y: run(parts["y"], y)), (lambda c: run(parts["u"], c)), parts
+
+
+def test_exposure_contrast_and_saturation_do_what_they_say():
+    luma, chroma, parts = _lut({"exposure": 100, "contrast": 0, "saturation": 0})          # one stop brighter
+    assert parts["u"] == parts["v"] and luma(16) == 16 and abs(luma(66) - 116) < 0.01 and luma(200) == 235
+    assert abs(chroma(138) - 148) < 0.01 and chroma(128) == 128                           # colours brighten with it
+    luma, chroma, _ = _lut({"exposure": -100, "contrast": 0, "saturation": 0})
+    assert abs(luma(116) - 66) < 0.01
+    luma, chroma, _ = _lut({"exposure": 0, "contrast": 100, "saturation": 0})              # half as much contrast again
+    assert abs(luma(125.5) - 125.5) < 0.01 and abs(luma(165.5) - 185.5) < 0.01 and abs(luma(85.5) - 65.5) < 0.01
+    luma, chroma, _ = _lut({"exposure": 0, "contrast": -100, "saturation": 0})
+    assert abs(luma(16) - 70.75) < 0.01                                                    # blacks lift, as on the page
+    luma, chroma, _ = _lut({"exposure": 0, "contrast": 0, "saturation": 100})              # twice the colour
+    assert luma(100) == 100 and abs(chroma(148) - 168) < 0.01 and chroma(250) == 240
+    luma, chroma, _ = _lut({"exposure": 0, "contrast": 0, "saturation": -100})             # none: black and white
+    assert chroma(200) == 128 and chroma(40) == 128
+
+
 def test_the_bug_slides_in_at_the_start_and_out_at_the_end():
     lay = {**LAY, "slide": [0.6, 0.5]}
     lines = export.filter_script(PIECES, PLATES, lay, "font.ttf", total=1200.0).strip().split(";\n")
@@ -203,7 +240,9 @@ def test_the_export_uses_the_edit_own_size_and_typeface(monkeypatch, tmp_path):
     assert f"fontsize={lay['clock']['size']}" in ran["graph"] and f"x='{60 + lay['clock']['slots'][0]}-text_w/2-" in ran["graph"]
     assert "(t-1199.500)/0.5" in ran["graph"]                             # the bug leaves as the 1200 seconds of play end
     export.export({**styled, "bug": {**styled["bug"], "animate": False}}, ["/v/game.mp4"], tmp_path / "still.mp4")
-    assert "pow(" not in ran["graph"]
+    assert "pow(" not in ran["graph"] and "lutyuv" not in ran["graph"]
+    export.export({**styled, "grade": {"exposure": 20, "contrast": 10, "saturation": 30}}, ["/v/game.mp4"], tmp_path / "graded.mp4")
+    assert "[cv]lutyuv=" in ran["graph"]
 
 
 def test_a_failed_export_leaves_no_file_and_keeps_the_earlier_one(monkeypatch, tmp_path):

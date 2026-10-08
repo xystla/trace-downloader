@@ -70,6 +70,22 @@ def pieces(segments, files) -> list[Piece]:
     return made
 
 
+def grade_filter(grade) -> str:
+    """The filter that brightens, adds contrast to and colours the picture as
+    the edit asks ('' when it asks for nothing). Worked the way the page's
+    preview works, so the two agree: exposure is a gain of up to a stop either
+    way, contrast pivots on mid grey, saturation goes from none to double."""
+    grade = grade if isinstance(grade, dict) else {}
+    exposure, contrast, saturation = (grade.get(key) or 0 for key in edit.GRADE)
+    if not (exposure or contrast or saturation):
+        return ""
+    gain, steep, colour = 2 ** (exposure / 100), 1 + contrast / 200, 1 + saturation / 100
+    # Video keeps black at 16 and white at 235 (colour around 128), so those are the fixed points.
+    luma = f"clip((val-16)*{gain * steep:.5f}+{125.5 - 109.5 * steep:.3f},16,235)"
+    chroma = f"clip((val-128)*{gain * steep * colour:.5f}+128,16,240)"
+    return f"lutyuv=y='{luma}':u='{chroma}':v='{chroma}'"
+
+
 def _slide(lay: dict, total) -> str:
     """How far left of its place the bug is at time t, as an ffmpeg expression
     ('' when it doesn't move): it starts off the picture's left edge and eases
@@ -93,13 +109,14 @@ def _clock(lay: dict, font: str, slide: str = "") -> list[str]:
 
 
 def filter_script(pieces, plates, lay: dict, font: str, size=(1920, 1080), fps: float = 30.0,
-                  audio: bool = True, total=None) -> str:
+                  audio: bool = True, total=None, grade=None) -> str:
     """The filter graph. Inputs 0..n-1 are the pieces; after them come the
     plates, `plates` being [(file name, from, to)] in output time. Every piece
     is first brought to one frame rate, size and pixel format: two half files
     that differ in any of them would otherwise not join (a differing frame rate
     makes ffmpeg write frames without end). With `total` (the length of what
-    is exported) the bug slides in and out, if the layout says it does."""
+    is exported) the bug slides in and out, if the layout says it does. The
+    picture is graded before the bug goes on, so the bug keeps its own colours."""
     lines = []
     same = [f"fps={fps:g}", f"scale={size[0]}:{size[1]}", "format=yuv420p", "setsar=1"]
     for i, piece in enumerate(pieces):
@@ -120,6 +137,9 @@ def filter_script(pieces, plates, lay: dict, font: str, size=(1920, 1080), fps: 
     else:
         lines.append("".join(f"[v{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[cv]")
     last, slide = "cv", _slide(lay, total)
+    if grade_filter(grade):
+        lines.append(f"[cv]{grade_filter(grade)}[gv]")
+        last = "gv"
     place = f"x='{lay['x']}-{slide}':y={lay['y']}" if slide else f"{lay['x']}:{lay['y']}"
     for k, (_, since, until) in enumerate(plates):
         lines.append(f"[{last}][{n + k}:v]overlay={place}"
@@ -210,7 +230,7 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
             plates.append((name, since, until))
         (work / "graph.txt").write_text(
             filter_script(parts, plates, scorebug.layout(scale, project["home"], project["away"], bug), "font.ttf",
-                          size=(infos[0]["width"], infos[0]["height"]), fps=infos[0]["fps"], audio=audio, total=total),
+                          size=(infos[0]["width"], infos[0]["height"]), fps=infos[0]["fps"], audio=audio, total=total, grade=project.get("grade")),
             encoding="utf-8")
         dest.parent.mkdir(parents=True, exist_ok=True)
         _write_out(dest, parts, plates, work, quality, infos, audio, total, progress_cb, on_proc)

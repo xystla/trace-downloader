@@ -79,6 +79,14 @@ def test_team_details_are_tidied():
     assert len(edit.clean({"home": {"code": "x" * 90}})["home"]["code"]) == 40
 
 
+def test_the_picture_settings_travel_with_the_edit():
+    assert edit.clean({})["grade"] == {"exposure": 0, "contrast": 0, "saturation": 0}
+    assert edit.clean({"grade": {"exposure": 25.4, "contrast": -40, "saturation": 300}})["grade"] == {"exposure": 25, "contrast": -40, "saturation": 100}
+    assert edit.clean({"grade": {"exposure": "x", "contrast": True, "saturation": -500}})["grade"] == {"exposure": 0, "contrast": 0, "saturation": -100}
+    assert edit.clean({"grade": "vivid"})["grade"] == {"exposure": 0, "contrast": 0, "saturation": 0}
+    assert edit.default_project("T", "R")["grade"] == {"exposure": 0, "contrast": 0, "saturation": 0}
+
+
 def test_the_bug_settings_travel_with_the_edit():
     usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True}
     assert edit.clean({})["bug"] == usual
