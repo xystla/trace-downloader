@@ -27,7 +27,7 @@ def test_every_typeface_on_offer_is_shipped_with_its_licence():
 
 
 def test_a_bug_style_is_tidied():
-    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True}
+    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic"}
     assert scorebug.style(None) == usual == scorebug.style("junk")
     assert scorebug.style({"size": 1.4, "font": "anton"}) == {**usual, "size": 1.4, "font": "anton"}
     assert scorebug.style({"size": 9, "font": "comic"}) == {**usual, "size": 2.0}
@@ -237,6 +237,68 @@ def test_the_timer_can_sit_on_the_right_of_the_bar():
 def test_the_bug_slides_in_and_out_unless_asked_not_to():
     assert [scorebug.style({"animate": a})["animate"] for a in (False, True, None, "no", 0)] == [False, True, True, True, True]
     assert scorebug.layout()["slide"] == [0.6, 0.5] and scorebug.layout(1.0, HOME, AWAY, {"animate": False})["slide"] is None
+
+
+def test_there_are_three_designs_to_choose_from():
+    assert list(scorebug.DESIGNS) == ["classic", "slim", "blocks"] and all(scorebug.DESIGNS.values())
+    assert [scorebug.style({"design": d})["design"] for d in ("slim", "blocks", "classic", "neon", 4)] == ["slim", "blocks", "classic", "classic", "classic"]
+
+
+def test_every_design_draws_in_every_typeface_with_the_clock_in_its_place():
+    for design in scorebug.DESIGNS:
+        for font in scorebug.FONTS:
+            for extra in ({}, {"timer": "right", "round": 23, "clock": 0, "strip": 30, "size": 1.4}):
+                bug = {"design": design, "font": font, **extra}
+                plate, lay = scorebug.render(HOME, AWAY, 12, 10, bug=bug), scorebug.layout(1.0, HOME, AWAY, bug)
+                clock = lay["clock"]
+                assert plate.size == (lay["width"], lay["height"]) == scorebug.size(HOME, AWAY, bug=bug), bug
+                wide = max(ImageFont.truetype(str(scorebug.font_path(font)), clock["size"]).getlength(d) for d in "0123456789")
+                assert clock["x"] <= clock["slots"][0] - wide / 2 and clock["slots"][4] + wide / 2 <= clock["x"] + clock["width"], bug
+                # Where the digits go is one plain colour, top to bottom of their height: nothing else is drawn there.
+                x, y = clock["slots"][1], clock["y"]
+                under = [plate.getpixel((x, yy)) for yy in range(y - clock["size"] // 3, y + clock["size"] // 3)]
+                assert all(p[3] > 250 and _near(p, under[0], slack=4) for p in under), bug
+                # And the digits will show against it.
+                ink = tuple(int(clock["color"][i:i + 2], 16) for i in (1, 3, 5))
+                assert sum(abs(a - b) for a, b in zip(ink, under[0][:3])) > 300, bug
+
+
+def test_the_slim_design_is_one_bar_with_the_timer_inside_and_the_names_underlined():
+    bug = {"design": "slim"}
+    plate, lay = scorebug.render(HOME, AWAY, 2, 1, bug=bug), scorebug.layout(1.0, HOME, AWAY, bug)
+    clock = lay["clock"]
+    assert lay["clock"]["color"] == "#ffffff"                                    # light digits on the dark bar
+    for x in (clock["width"] // 2, clock["width"] + 4, plate.size[0] // 2):      # the bar runs under the timer and on, unbroken
+        assert _near(plate.getpixel((x, 4)), (45, 10, 60)) and plate.getpixel((x, 4))[3] > 250
+    row = [plate.getpixel((x, 50)) for x in range(plate.size[0])] + [plate.getpixel((x, 49)) for x in range(plate.size[0])]
+    assert sum(_near(p, (22, 160, 90)) for p in row) > 20 and sum(_near(p, (30, 90, 200)) for p in row) > 20     # a line of each team's colour
+    assert not any(_near(plate.getpixel((x, 29)), (22, 160, 90)) for x in range(plate.size[0]))                 # and no strips at the ends
+    assert _ink(plate, (0, 10, plate.size[0], 48), dark=False) is not None       # the score is written light, with no box
+    whites = sum(_near(plate.getpixel((x, 12)), (255, 255, 255)) for x in range(plate.size[0]))
+    assert whites < 12
+    pale = scorebug.layout(1.0, HOME, AWAY, {"design": "slim", "color": "#f2e9c8"})
+    assert pale["clock"]["color"] == "#1c1226"                                   # dark digits on a light bar
+
+
+def test_the_blocks_design_fills_each_side_with_its_team_colour():
+    bug = {"design": "blocks"}
+    plate, lay = scorebug.render(HOME, AWAY, 2, 1, bug=bug), scorebug.layout(1.0, HOME, AWAY, bug)
+    start = lay["clock"]["width"] + 10                                           # the bar begins after the timer and its gap
+    assert _near(plate.getpixel((start + 8, 29)), (22, 160, 90)) and _near(plate.getpixel((start + 8, 6)), (22, 160, 90))
+    assert _near(plate.getpixel((plate.size[0] - 8, 29)), (30, 90, 200))
+    assert plate.getpixel((start - 5, 29))[3] == 0 and _near(plate.getpixel((lay["clock"]["width"] // 2, 12)), (255, 255, 255))
+    plan = scorebug._plan(HOME, AWAY, scorebug.style(bug))
+    middle = round((plan["score"] + plan["score_wide"] / 2) * scorebug.BIG)
+    assert _near(plate.getpixel((middle, 11)), (45, 10, 60))                     # the score sits in a box of the bug's own colour
+    left = round(plan["score"] * scorebug.BIG)
+    assert _ink(plate, (left + 6, 12, left + 50, 46), dark=False) is not None    # written light
+    # A pale team colour gets dark letters.
+    pale = scorebug.render({"code": "TIG", "color": "#ffe9a8"}, AWAY, 0, 0, bug=bug)
+    assert _ink(pale, (start + 20, 12, left - 10, 46)) is not None
+    # More of the strip setting means more solid colour before it fades toward the middle.
+    far = round((plan["bar"] + (plan["score"] - plan["bar"]) * 0.8) * scorebug.BIG)
+    soft, solid = plate.getpixel((far, 5)), scorebug.render(HOME, AWAY, 2, 1, bug={**bug, "strip": 40}).getpixel((far, 5))
+    assert _near(solid, (22, 160, 90)) and not _near(soft, (22, 160, 90))
 
 
 def test_a_plate_can_be_handed_over_as_a_png():

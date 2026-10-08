@@ -1177,6 +1177,7 @@ def test_the_editor_is_told_the_typefaces_and_gets_a_fresh_layout_with_each_save
     opened = editor.edit_open("t-1")
     assert opened["fonts"][0] == {"key": "barlow", "label": "Barlow Semi Condensed", "file": "BarlowSemiCondensed-SemiBold.ttf"}
     assert len(opened["fonts"]) == 6 and opened["sizes"] == [0.5, 2.0]
+    assert [d["key"] for d in opened["designs"]] == ["classic", "slim", "blocks"] and all(d["label"] for d in opened["designs"])
     changed = {**editor.project, "home": {**editor.project["home"], "code": "TIGER SHARKS"}, "bug": {"size": 1.5, "font": "anton"}}
     saved = editor.edit_save("t-1", changed)
     assert saved["layout"] == scorebug.layout(1.0, changed["home"], changed["away"], changed["bug"])

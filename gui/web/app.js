@@ -2858,7 +2858,7 @@ async function openEditor(id) {
   if (!(res && res.ok)) { ed.id = null; edListGames(); return; }
   Object.assign(ed, { id, project: res.project, segments: res.segments, problems: res.problems,
     sources: res.sources, duration: res.duration, layout: res.layout, score: res.score, current: -1 });
-  edOfferLooks(res.fonts || [], res.sizes || [0.5, 2]);
+  edOfferLooks(res.fonts || [], res.sizes || [0.5, 2], res.designs || []);
   edListGames();
   const video = el("edVideo");
   if (!edControls) {              // the app's usual play / scrub / speed bar, made once
@@ -2932,6 +2932,7 @@ function edRender() {
     row.querySelector(".ed-code").value = team.code;
   }
   el("edFont").value = ed.project.bug.font;
+  el("edDesign").value = ed.project.bug.design;
   if (document.activeElement !== el("edSize")) el("edSize").value = Math.round(ed.project.bug.size * 100);
   el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
   el("edBarColor").value = ed.project.bug.color;
@@ -2948,7 +2949,12 @@ function edRender() {
 
 // The score bug's look: the typefaces the app ships, and how far the size goes.
 const edFaces = new Set();
-function edOfferLooks(fonts, sizes) {
+function edOfferLooks(fonts, sizes, designs) {
+  el("edDesign").replaceChildren(...designs.map((d) => {
+    const o = node("option", "", d.label);
+    o.value = d.key;
+    return o;
+  }));
   el("edFont").replaceChildren(...fonts.map((f) => {
     const o = node("option", "", f.label);
     o.value = f.key;
@@ -2964,6 +2970,7 @@ function edOfferLooks(fonts, sizes) {
   Object.assign(el("edSize"), { min: Math.round(sizes[0] * 100), max: Math.round(sizes[1] * 100) });
 }
 el("edFont").onchange = () => { ed.project.bug.font = el("edFont").value; edSave(); };
+el("edDesign").onchange = () => { ed.project.bug.design = el("edDesign").value; edSave(); };
 el("edAnimate").onchange = () => { ed.project.bug.animate = el("edAnimate").checked; edSave(); };
 el("edTimerSide").onchange = () => { ed.project.bug.timer = el("edTimerSide").value; edSave(); };
 let edLookWait = 0;

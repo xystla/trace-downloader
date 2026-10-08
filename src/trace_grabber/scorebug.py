@@ -28,6 +28,15 @@ FONTS = {
     "poppins": ("Poppins", "Poppins-SemiBold.ttf"),
 }
 DEFAULT_FONT = "barlow"
+# The designs on offer. Every setting (size, typeface, colour, corners, timer
+# side and room, slide) works in each; "strip" is the colour strips' width in
+# the classic one, the underlines' weight in the slim one, and how much of each
+# side is solid colour in the blocks one.
+DESIGNS = {
+    "classic": "Classic: bar with colour strips",
+    "slim": "Slim: one bar, names underlined",
+    "blocks": "Colour blocks: each side in its team's colour",
+}
 SIZES = (0.5, 2.0)              # how far the size setting goes; 1.0 is the usual size
 ORIGIN = (60, 48)               # where the plate's top-left sits in the picture
 BIG = 1.25                      # the whole bug is drawn this much bigger than its measurements
@@ -39,7 +48,7 @@ ROUNDS = (0, 23)                # corners: square, up to the bug's ends being ha
 NAME, NAME_SIZE, NAME_PAD = 95, 28, 14      # a name's room (at least), its type size, the space at its sides
 DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
 WHITE, INK = (255, 255, 255), (28, 18, 38)
-USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True}
+USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic"}
 CLOCK_COLOR = "#1c1226"
 SLIDE = (0.6, 0.5)              # seconds the bug takes to slide in as the game starts, and out as it ends
 _SMOOTH = 3                     # drawn this many times bigger, then shrunk, for smooth edges
@@ -73,7 +82,8 @@ def style(bug) -> dict:
             "clock": whole("clock", 0, 100),            # how roomy the timer's box is: 0 tight, 100 wide
             "strip": whole("strip", *STRIPS), "round": whole("round", *ROUNDS),
             "timer": "right" if bug.get("timer") == "right" else "left",       # which side of the bar the timer is on
-            "animate": bug.get("animate") is not False}
+            "animate": bug.get("animate") is not False,
+            "design": bug.get("design") if isinstance(bug.get("design"), str) and bug.get("design") in DESIGNS else "classic"}
 
 
 @lru_cache(maxsize=64)
@@ -91,7 +101,9 @@ def _wide(font: str, size: int, words: str) -> float:
 
 def _plan(home: dict, away: dict, bug: dict) -> dict:
     """Where the bug's parts sit, left to right, for these names and this look."""
-    font, end = bug["font"], STRIP_AT + bug["strip"]
+    font, design = bug["font"], bug["design"]
+    end = STRIP_AT + bug["strip"] if design == "classic" else 12       # only the classic design has strips at its ends
+    gap = 0 if design == "slim" else GAP                                # the slim design keeps its timer inside the bar
     # Room at the timer's sides: what was asked for, and more when the ends are round.
     pad = 2 + bug["clock"] / 5 + max(0, bug["round"] - 10) / 3
     digit = max(_wide(font, DIGIT_SIZE, d) for d in "0123456789")
@@ -111,13 +123,26 @@ def _plan(home: dict, away: dict, bug: dict) -> dict:
     away_room = max(NAME, math.ceil(_wide(font, NAME_SIZE, away["code"])) + 2 * NAME_PAD)
     bar_wide = end + home_room + score_wide + away_room + end
     # The timer's box goes before the bar or after it; either way with a gap between.
-    clock_x, bar = (bar_wide + GAP, 0) if bug["timer"] == "right" else (0, clock + GAP)
+    clock_x, bar = (bar_wide + gap, 0) if bug["timer"] == "right" else (0, clock + gap)
     score = bar + end + home_room
     return {"clock": clock, "clock_x": clock_x, "slots": [clock_x + slot for slot in slots],
             "bar": bar, "bar_wide": bar_wide, "home": bar + end + home_room / 2,
             "score": score, "score_wide": score_wide, "home_digit": score + 4 + side / 2,
             "dash": score + score_wide / 2, "away_digit": score + score_wide - 4 - side / 2,
-            "away": score + score_wide + away_room / 2, "width": clock + GAP + bar_wide}
+            "away": score + score_wide + away_room / 2, "width": clock + gap + bar_wide,
+            "home_wide": _wide(font, NAME_SIZE, home["code"]), "away_wide": _wide(font, NAME_SIZE, away["code"])}
+
+
+def _light(colour: tuple) -> bool:
+    return (colour[0] * 299 + colour[1] * 587 + colour[2] * 114) / 1000 > 150
+
+
+def _clock_color(bug: dict) -> str:
+    """The clock digits' colour: dark in the timer's white box, or (in the slim
+    design, where the timer is part of the bar) whichever shows on the bar."""
+    if bug["design"] != "slim":
+        return CLOCK_COLOR
+    return CLOCK_COLOR if _light(_rgb(bug["color"])) else "#ffffff"
 
 
 def _middle(face, glyph: str) -> float:
@@ -142,8 +167,7 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
     plan = _plan(home, away, bug)
     width, score, mid = plan["width"], plan["score"], HEIGHT / 2
     bar, corner, strip = _rgb(bug["color"]), bug["round"], bug["strip"]
-    light = (bar[0] * 299 + bar[1] * 587 + bar[2] * 114) / 1000 > 150
-    names = INK if light else WHITE                    # whichever can be read on the bar
+    names = INK if _light(bar) else WHITE              # whichever can be read on the bar
     # On a bar as pale as the score's box, the box is tinted so it still shows.
     score_fill = (232, 230, 236) if min(bar) > 225 else WHITE
     strip_corner = min(strip / 2, corner * 0.3)
@@ -161,16 +185,47 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         draw.text((cx * k, mid * k - _middle(face, like)), words, font=face, fill=fill, anchor="mm")
 
     inner = min(17, corner * 0.7)                      # the two white boxes are alike: as tall, as round
-    box(plan["clock_x"], 6, plan["clock"], HEIGHT - 12, inner, WHITE)  # the clock's box
-    box(plan["bar"], 0, plan["bar_wide"], HEIGHT, corner, bar)
-    box(plan["bar"] + STRIP_AT, 8, strip, HEIGHT - 16, strip_corner, _rgb(home["color"]))
-    text(plan["home"], home["code"], NAME_SIZE, names, "H")
-    box(score, 6, plan["score_wide"], HEIGHT - 12, inner, score_fill)  # the score
-    text(plan["home_digit"], str(home_score), DIGIT_SIZE, INK, "0")
-    box(plan["dash"] - 4.5, mid - 1.6, 9, 3.2, 1, INK)                 # the dash, drawn: a typeface's own sits where it likes
-    text(plan["away_digit"], str(away_score), DIGIT_SIZE, INK, "0")
-    text(plan["away"], away["code"], NAME_SIZE, names, "H")
-    box(plan["bar"] + plan["bar_wide"] - STRIP_AT - strip, 8, strip, HEIGHT - 16, strip_corner, _rgb(away["color"]))
+    design, bar_end = bug["design"], plan["bar"] + plan["bar_wide"]
+    home_ink = away_ink = digits = names
+    if design == "slim":
+        # One bar from end to end, the timer inside it; a line of each team's colour under its name.
+        box(0, 0, width, HEIGHT, corner, bar)
+        edge = plan["clock"] if bug["timer"] == "left" else plan["clock_x"]
+        box(edge - 0.75, 12, 1.5, HEIGHT - 24, 0.75, tuple(round((n + 2 * c) / 3) for n, c in zip(names, bar)))     # a faint divider
+        weight = 2 + strip / 8
+        for centre, wide, team in ((plan["home"], plan["home_wide"], home), (plan["away"], plan["away_wide"], away)):
+            box(centre - wide / 2, HEIGHT - 3.5 - weight, max(wide, 12), weight, weight / 2 if corner else 0, _rgb(team["color"]))
+    else:
+        box(plan["clock_x"], 6, plan["clock"], HEIGHT - 12, inner, WHITE)                       # the clock's box
+        box(plan["bar"], 0, plan["bar_wide"], HEIGHT, corner, bar)
+    if design == "classic":
+        digits = INK
+        box(plan["bar"] + STRIP_AT, 8, strip, HEIGHT - 16, strip_corner, _rgb(home["color"]))
+        box(bar_end - STRIP_AT - strip, 8, strip, HEIGHT - 16, strip_corner, _rgb(away["color"]))
+        box(score, 6, plan["score_wide"], HEIGHT - 12, inner, score_fill)                       # the score's box
+    elif design == "blocks":
+        # Each side filled with its team's colour: solid from its end for part of the
+        # way (more with a bigger strip setting), then fading into the bar's colour.
+        solid = (strip - STRIPS[0]) / (STRIPS[1] - STRIPS[0])
+        band = Image.new("RGBA", plate.size, bar + (255,))
+        paint = ImageDraw.Draw(band)
+        for team, outer, inner_edge in ((home, plan["bar"], score), (away, bar_end, score + plan["score_wide"])):
+            colour, a, b = _rgb(team["color"]), round(outer * k), round(inner_edge * k)
+            for x in range(min(a, b), max(a, b)):
+                along = abs(x - a) / max(1, abs(b - a))                                 # 0 at the bar's end, 1 at the score
+                fade = 0 if solid >= 1 else min(1, max(0, (along - solid) / (1 - solid))) ** 1.5
+                paint.line([(x, 0), (x, band.size[1])], fill=tuple(round(c + (d - c) * fade) for c, d in zip(colour, bar)))
+        shape = Image.new("L", plate.size, 0)
+        ImageDraw.Draw(shape).rounded_rectangle([plan["bar"] * k, 0, bar_end * k, HEIGHT * k], radius=corner * k, fill=255)
+        plate.paste(band, (0, 0), shape)
+        reads = lambda c: INK if _light(c) else WHITE
+        home_ink, away_ink = reads(_rgb(home["color"])), reads(_rgb(away["color"]))
+        box(score, 6, plan["score_wide"], HEIGHT - 12, inner, bar)                              # the score's box
+    text(plan["home"], home["code"], NAME_SIZE, home_ink, "H")
+    text(plan["home_digit"], str(home_score), DIGIT_SIZE, digits, "0")
+    box(plan["dash"] - 4.5, mid - 1.6, 9, 3.2, 1, digits)              # the dash, drawn: a typeface's own sits where it likes
+    text(plan["away_digit"], str(away_score), DIGIT_SIZE, digits, "0")
+    text(plan["away"], away["code"], NAME_SIZE, away_ink, "H")
     return plate.resize(final, Image.LANCZOS)
 
 
@@ -194,7 +249,7 @@ def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = Non
             "clock": {"slots": [round(x * k) for x in plan["slots"]], "y": y,
                       "page_y": [round(y - _middle(face, glyph), 1) for glyph in "00:00"],
                       "x": round(plan["clock_x"] * k), "width": round(plan["clock"] * k),
-                      "size": type_size, "color": CLOCK_COLOR}}
+                      "size": type_size, "color": _clock_color(bug)}}
 
 
 def png_bytes(image: Image.Image) -> bytes:
