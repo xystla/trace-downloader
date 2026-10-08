@@ -603,3 +603,8 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-bug { position:absolute; pointer-events:none; }
 .ed-bug img { display:block; width:100%; height:100%; }
 .ed-bug span { position:absolute; transform:translate(-50%, -50%); font-family:"TraceDown Bug", sans-serif; line-height:1; white-space:nowrap; }
+.ed-export { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.ed-export .row { gap:8px; }
+.ed-export select { width:auto; margin:0; flex:1; }
+.ed-export .bar { height:6px; }
+.ed-export p { margin:0; font-size:13px; }

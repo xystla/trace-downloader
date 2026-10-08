@@ -316,6 +316,7 @@ async function attachPlayer(card, id) {
     clipHalf: c.half, clipStart: c.start }));
   media.recaps.forEach((r) => sources.push({ group: "Player recaps", label: r.label, url: r.url }));
   (media.mine || []).forEach((c) => sources.push({ group: "My clips", label: c.label, url: c.url }));
+  (media.edited || []).forEach((e) => sources.push({ group: "Edited", label: e.label, url: e.url }));
   if (sources.length === 0) return;
 
   const thumb = card.querySelector(".thumb");
@@ -2058,6 +2059,7 @@ window.onPy = (event, p) => {
   }
   // A background check found the login has lapsed: ask afresh, which brings up the Reconnect banner.
   if (event === "login_changed") { refresh(); return; }
+  if (event === "export_progress" || event === "export_done") { edExportEvent(event, p); return; }
   if (event === "auto") {
     // An automatic download takes its turn like any other: the line waits for it.
     autoBusy = !!p.running;
@@ -3108,6 +3110,70 @@ function edSkipCuts() {
 edParts.push(edDrawBug);
 edOnTime.push(edDrawBug, edSkipCuts);
 window.addEventListener("resize", () => { if (ed.id) edDrawBug(); });
+
+// ---- editor: exporting ----
+// One export runs at a time, whatever game the Editor is showing meanwhile.
+const edRun = { id: null, percent: 0, eta: null, note: "", warn: false, quality: "best" };
+
+function edDrawExport() {
+  const box = el("edExport");
+  const say = (text, warn) => node("p", warn ? "warn" : "caption", text);
+  if (edRun.id) {
+    const bar = node("div", "bar");
+    const fill = node("i");
+    fill.style.width = Math.max(2, edRun.percent) + "%";
+    bar.append(fill);
+    const stop = labelButton("x", "Stop", "Stop the export. Nothing is kept.", () => { stop.disabled = true; api().export_stop(); });
+    stop.classList.add("danger");
+    const where = edRun.id === ed.id ? "" : "Another game is exporting. ";
+    box.replaceChildren(bar, say(where + (edRun.percent
+      ? [`${edRun.percent}%`, timeLeft(edRun.eta)].filter(Boolean).join(" · ") : "Starting…")), stop);
+    return;
+  }
+  const parts = [];
+  if (edRun.note) parts.push(say(edRun.note, edRun.warn));
+  if (edRun.done === ed.id) {
+    parts.push(labelButton("folder", "Open folder", "Open this game's folder; the export is in Edited.",
+      () => api().open_game_folder(ed.id)));
+  }
+  if (!ed.problems.length) {
+    const quality = document.createElement("select");
+    quality.setAttribute("aria-label", "Export quality");
+    quality.append(new Option("Best quality", "best"), new Option("Faster", "faster"));
+    quality.value = edRun.quality;
+    quality.onchange = () => { edRun.quality = quality.value; };
+    quality.title = "Best looks the same as the original and takes longer. Faster uses the computer's video hardware where it can.";
+    const go = labelButton("download", "Export game",
+      "Save the game with the breaks cut out and the score bug on top, in the game's Edited folder. Exporting again replaces the earlier export.",
+      async () => {
+        go.disabled = true;
+        Object.assign(edRun, { note: "", warn: false, done: null });
+        let res;
+        try { res = await api().export_start(ed.id, edRun.quality); } catch (e) { res = { ok: false, error: String(e) }; }
+        if (res && res.ok) Object.assign(edRun, { id: ed.id, percent: 0, eta: null });
+        else Object.assign(edRun, { note: (res && res.error) || "The export couldn't start.", warn: true });
+        edDrawExport();
+      });
+    go.classList.add("primary");
+    const row = node("div", "row");
+    row.append(quality, go);
+    parts.push(row);
+  }
+  box.replaceChildren(...parts);
+}
+
+function edExportEvent(event, p) {
+  if (event === "export_progress") {
+    if (edRun.id !== p.id) return;
+    Object.assign(edRun, { percent: p.percent, eta: p.eta });
+  } else {
+    Object.assign(edRun, { id: null, percent: 0, eta: null, done: p.ok ? p.id : null,
+      note: p.ok ? "Exported." : p.error || "The export didn't finish.", warn: !p.ok && !p.stopped });
+  }
+  if (ed.id) edDrawExport();
+}
+
+edParts.push(edDrawExport);
 
 const afterFirstLoad = () => {
   hideSplash();
