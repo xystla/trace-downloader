@@ -1228,3 +1228,25 @@ def test_the_edited_game_can_be_played_in_the_app(editor):
         "edited": [{"label": "Edited game", "path": "/v/g/Edited/g (edited).mp4"}]}
     assert editor.game_media("t-1")["edited"] == [{"label": "Edited game", "url": "http://127.0.0.1:1/tok/g (edited).mp4"}]
     assert editor.game_media("nope")["edited"] == []
+
+
+def test_stop_pressed_before_the_export_has_properly_started_still_stops_it(editor):
+    # Reading the video's facts and drawing the plates comes first; ffmpeg starts a moment later.
+    ended = []
+    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None):
+        editor.export_stop()                                        # pressed during the preparation
+        on_proc(SimpleNamespace(terminate=lambda: ended.append("terminated")))
+        raise RuntimeError("The export didn't finish.")
+    editor._worker.export_edit = export_edit
+    editor.export_start("t-1")
+    assert ended == ["terminated"]
+    assert _events(editor, "export_done")[-1] == {"id": "t-1", "ok": False, "stopped": True,
+                                                 "error": "Stopped. Nothing was exported."}
+
+
+def test_quitting_the_app_ends_an_export_in_progress(editor):
+    ended = []
+    editor._export_proc = SimpleNamespace(terminate=lambda: ended.append("terminated"))
+    editor._quit_soon = lambda: None
+    editor.quit_app()
+    assert ended == ["terminated"]

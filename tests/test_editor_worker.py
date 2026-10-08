@@ -27,7 +27,7 @@ def ed(monkeypatch, tmp_path):
     w.args = ("demo-7", "2026-09-22", "Rivals")
     w.game_root = root / "2026-09-22_vs-rivals"
     monkeypatch.setattr(worker.export, "video_info", lambda path: {
-        "duration": 1500.0 if "half" in Path(path).name else 4480.0, "width": 1920, "height": 1080, "bitrate": 5000, "audio": True})
+        "duration": 1500.0 if "half" in Path(path).name else 4480.0, "width": 1920, "height": 1080, "bitrate": 5000, "audio": True, "fps": 30.0})
     monkeypatch.setattr(worker.space, "free", lambda folder: 500 * GB)
     w.exports = []
     def export(project, files, dest, quality="best", progress_cb=None, on_proc=None):

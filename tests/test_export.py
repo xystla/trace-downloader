@@ -20,7 +20,8 @@ def _ffmpeg_says(monkeypatch, text):
 
 def test_a_videos_facts_are_read_from_ffmpeg(monkeypatch):
     _ffmpeg_says(monkeypatch, INFO)
-    assert export.video_info("game.mp4") == {"duration": 4480.13, "width": 1920, "height": 1080, "bitrate": 5183, "audio": True}
+    assert export.video_info("game.mp4") == {"duration": 4480.13, "width": 1920, "height": 1080, "bitrate": 5183,
+                                             "audio": True, "fps": 30.0}
     _ffmpeg_says(monkeypatch, INFO.replace("  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, mono, fltp, 125 kb/s (default)\n", "")
                  .replace("1920x1080", "1280x720"))
     silent = export.video_info("game.mp4")
@@ -53,11 +54,12 @@ PLATES = [("plate0.png", 0, 290), ("plate1.png", 290, 1201)]
 
 
 def test_the_graph_fades_joins_overlays_and_writes_the_clock():
-    script = export.filter_script(PIECES, PLATES, LAY, "font.ttf")
+    script = export.filter_script(PIECES, PLATES, LAY, "font.ttf", size=(1920, 1080), fps=30.0)
     lines = script.strip().split(";\n")
-    assert lines[0] == "[0:v]fade=t=out:st=599.500:d=0.5,setsar=1[v0]"
+    assert lines[0] == "[0:v]fps=30,scale=1920:1080,format=yuv420p,setsar=1,fade=t=out:st=599.500:d=0.5[v0]"
     assert lines[1] == "[0:a]afade=t=out:st=599.500:d=0.5[a0]"
-    assert lines[2] == "[1:v]fade=t=in:st=0:d=0.5,setsar=1[v1]" and lines[3] == "[1:a]afade=t=in:st=0:d=0.5[a1]"
+    assert lines[2] == "[1:v]fps=30,scale=1920:1080,format=yuv420p,setsar=1,fade=t=in:st=0:d=0.5[v1]"
+    assert lines[3] == "[1:a]afade=t=in:st=0:d=0.5[a1]"
     assert lines[4] == "[v0][a0][v1][a1]concat=n=2:v=1:a=1[cv][ca]"
     assert lines[5] == "[cv][2:v]overlay=60:48:enable='between(t,0.000,290.000)'[o0]"
     assert lines[6] == "[o0][3:v]overlay=60:48:enable='between(t,290.000,1201.000)'[o1]"
@@ -72,9 +74,10 @@ def test_the_graph_fades_joins_overlays_and_writes_the_clock():
 
 
 def test_a_piece_with_nothing_to_fade_and_a_video_with_no_sound():
-    script = export.filter_script([Piece(Path("/v/g.mp4"), 5, 60, False, False)], [("plate0.png", 0, 61)], LAY, "font.ttf", audio=False)
+    script = export.filter_script([Piece(Path("/v/g.mp4"), 5, 60, False, False)], [("plate0.png", 0, 61)], LAY, "font.ttf",
+                                  size=(1280, 720), fps=29.97, audio=False)
     lines = script.strip().split(";\n")
-    assert lines[0] == "[0:v]setsar=1[v0]" and lines[1] == "[v0]concat=n=1:v=1:a=0[cv]"
+    assert lines[0] == "[0:v]fps=29.97,scale=1280:720,format=yuv420p,setsar=1[v0]" and lines[1] == "[v0]concat=n=1:v=1:a=0[cv]"
     assert "[0:a]" not in script and "[ca]" not in script
 
 
@@ -104,6 +107,8 @@ def test_the_faster_quality_uses_the_macs_video_hardware_and_plain_speed_elsewhe
 class _Ffmpeg:
     def __init__(self, lines, code):
         self.stdout, self.returncode, self._code = iter(lines), None, code
+    def poll(self):
+        return self.returncode
     def wait(self):
         self.returncode = self._code
         return self._code
@@ -137,7 +142,7 @@ def _fake_export(monkeypatch, outcome="ok", height=1080):
     """video_info and run replaced; `ran` records what run was given and what was in its folder."""
     ran = {}
     monkeypatch.setattr(export, "video_info", lambda path: {"duration": 5000.0, "width": height * 16 // 9, "height": height,
-                                                           "bitrate": 5183, "audio": True})
+                                                           "bitrate": 5183, "audio": True, "fps": 30.0})
     def run(cmd, total, cwd, progress_cb=None, on_proc=None):
         ran.update(cmd=cmd, total=total, files=sorted(p.name for p in Path(cwd).iterdir()),
                    graph=(Path(cwd) / "graph.txt").read_text(), plate_size=None)
@@ -191,11 +196,58 @@ def test_the_faster_quality_never_starves_the_picture(monkeypatch, tmp_path):
     monkeypatch.setattr(export.sys, "platform", "darwin")
     ran = _fake_export(monkeypatch)
     monkeypatch.setattr(export, "video_info", lambda path: {"duration": 5000.0, "width": 1920, "height": 1080,
-                                                           "bitrate": 232, "audio": True})
+                                                           "bitrate": 232, "audio": True, "fps": 30.0})
     export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4", "faster")
     asked = int(ran["cmd"][ran["cmd"].index("-b:v") + 1].rstrip("k"))
     assert 4000 <= asked <= 5000                        # about 0.07 bits a pixel a frame at 1080 lines
     monkeypatch.setattr(export, "video_info", lambda path: {"duration": 5000.0, "width": 1920, "height": 1080,
-                                                           "bitrate": 5183, "audio": True})
+                                                           "bitrate": 5183, "audio": True, "fps": 30.0})
     export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out2.mp4", "faster")
     assert ran["cmd"][ran["cmd"].index("-b:v") + 1] == "6737k"      # a normal source: 1.3 times its own
+
+
+class _Running:
+    """An ffmpeg that is still going: it only ends when it is told to."""
+    def __init__(self, lines=()):
+        self.stdout, self.returncode, self.ended = iter(lines), None, []
+    def poll(self):
+        return self.returncode
+    def terminate(self):
+        self.ended.append("terminated")
+        self.returncode = -15
+    def wait(self, timeout=None):
+        return self.returncode if self.returncode is not None else 0
+
+
+def test_ffmpeg_is_never_left_running_when_following_it_fails(monkeypatch, tmp_path):
+    # The window may be gone by the time progress is reported: the export must not carry on unseen.
+    proc = _Running(["out_time=00:00:30.000000\n"])
+    monkeypatch.setattr(export.subprocess, "Popen", lambda cmd, **kwargs: proc)
+    def gone(percent, done):
+        raise RuntimeError("the window was closed")
+    with pytest.raises(RuntimeError, match="window was closed"):
+        export.run(["ffmpeg", "x"], 120, tmp_path, progress_cb=gone)
+    assert proc.ended == ["terminated"]
+
+
+def test_what_ffmpeg_said_is_kept_in_the_log_when_an_export_fails(monkeypatch, tmp_path, caplog):
+    def popen(cmd, **kwargs):
+        kwargs["stderr"].write("frame=  10\n[concat] Input link parameters do not match\nConversion failed!\n")
+        return _Ffmpeg([], 1)
+    monkeypatch.setattr(export.subprocess, "Popen", popen)
+    with caplog.at_level("INFO"), pytest.raises(RuntimeError, match="The export didn't finish"):
+        export.run(["ffmpeg", "x"], 120, tmp_path)
+    assert "Input link parameters do not match" in caplog.text and "Conversion failed!" in caplog.text
+
+
+def test_an_export_that_cannot_replace_an_open_file_says_so(monkeypatch, tmp_path):
+    # On Windows a video that is open in a player can't be replaced.
+    _fake_export(monkeypatch)
+    from contextlib import contextmanager
+    @contextmanager
+    def in_use(dest):
+        yield Path(tmp_path / "x.part.mp4")
+        raise PermissionError(13, "Access is denied")
+    monkeypatch.setattr(export, "complete_or_nothing", in_use)
+    with pytest.raises(RuntimeError, match="open in a player"):
+        export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4")

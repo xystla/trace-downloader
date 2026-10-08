@@ -5,6 +5,7 @@ One ffmpeg command does it. Each stretch is read with a seek, faded where it
 meets a break, and joined; the bug's plate for the current score is laid over
 the result, and the clock's digits are written on top from the output's own
 time, which is exactly the play time because the breaks are gone."""
+import logging
 import re
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ from .progress import parse_out_time, percent
 from .tools import complete_or_nothing, ffmpeg_path, subprocess_flags
 
 FADE = 0.5      # seconds of fade out before a break and fade in after it
+LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,8 +33,8 @@ class Piece:
 
 
 def video_info(path) -> dict:
-    """What the export needs to know about a video: its length, size, overall
-    bitrate (kbit/s, None if not stated) and whether it has sound."""
+    """What the export needs to know about a video: its length, size, frame rate,
+    overall bitrate (kbit/s, None if not stated) and whether it has sound."""
     said = subprocess.run([ffmpeg_path(), "-hide_banner", "-i", str(path)],
                           capture_output=True, text=True, **subprocess_flags()).stderr
     length = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", said)
@@ -40,10 +42,12 @@ def video_info(path) -> dict:
     if not length or not size:
         raise RuntimeError("That video couldn't be read.")
     rate = re.search(r"bitrate: (\d+) kb/s", said)
+    frames = re.search(r"Video:.*?, (\d+(?:\.\d+)?) fps", said)
     hours, minutes, seconds = length.groups()
     return {"duration": round(int(hours) * 3600 + int(minutes) * 60 + float(seconds), 3),
             "width": int(size.group(1)), "height": int(size.group(2)),
-            "bitrate": int(rate.group(1)) if rate else None, "audio": "Audio:" in said}
+            "bitrate": int(rate.group(1)) if rate else None, "audio": "Audio:" in said,
+            "fps": float(frames.group(1)) if frames else 30.0}
 
 
 def pieces(segments, files) -> list[Piece]:
@@ -76,12 +80,17 @@ def _clock(lay: dict, font: str) -> list[str]:
             for glyph, slot in zip(glyphs, clock["slots"])]
 
 
-def filter_script(pieces, plates, lay: dict, font: str, audio: bool = True) -> str:
+def filter_script(pieces, plates, lay: dict, font: str, size=(1920, 1080), fps: float = 30.0,
+                  audio: bool = True) -> str:
     """The filter graph. Inputs 0..n-1 are the pieces; after them come the
-    plates, `plates` being [(file name, from, to)] in output time."""
+    plates, `plates` being [(file name, from, to)] in output time. Every piece
+    is first brought to one frame rate, size and pixel format: two half files
+    that differ in any of them would otherwise not join (a differing frame rate
+    makes ffmpeg write frames without end)."""
     lines = []
+    same = [f"fps={fps:g}", f"scale={size[0]}:{size[1]}", "format=yuv420p", "setsar=1"]
     for i, piece in enumerate(pieces):
-        video, sound = [], []
+        video, sound = list(same), []
         if piece.fade_in:
             video.append(f"fade=t=in:st=0:d={FADE}")
             sound.append(f"afade=t=in:st=0:d={FADE}")
@@ -89,7 +98,7 @@ def filter_script(pieces, plates, lay: dict, font: str, audio: bool = True) -> s
             at = max(0.0, piece.length - FADE)
             video.append(f"fade=t=out:st={at:.3f}:d={FADE}")
             sound.append(f"afade=t=out:st={at:.3f}:d={FADE}")
-        lines.append(f"[{i}:v]{','.join(video + ['setsar=1'])}[v{i}]")
+        lines.append(f"[{i}:v]{','.join(video)}[v{i}]")
         if audio:
             lines.append(f"[{i}:a]{','.join(sound) or 'anull'}[a{i}]")
     n = len(pieces)
@@ -134,17 +143,30 @@ def run(cmd, total: float, cwd, progress_cb=None, on_proc=None) -> None:
     (percent, seconds exported) follows it; on_proc(process) hands over the
     running ffmpeg so the caller can stop it. What ffmpeg said is kept in
     'ffmpeg.log' in `cwd` for the caller to read on failure."""
-    with open(Path(cwd) / "ffmpeg.log", "w", encoding="utf-8", errors="replace") as log:
+    said = Path(cwd) / "ffmpeg.log"
+    with open(said, "w", encoding="utf-8", errors="replace") as log:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=log, text=True, cwd=str(cwd),
                                 **subprocess_flags())
-        if on_proc is not None:
-            on_proc(proc)
-        for line in proc.stdout:
-            done = parse_out_time(line)
-            if done is not None and progress_cb is not None:
-                progress_cb(percent(done, total), done)
-        if proc.wait() != 0:
-            raise RuntimeError("The export didn't finish.")
+        try:
+            if on_proc is not None:
+                on_proc(proc)
+            for line in proc.stdout:
+                done = parse_out_time(line)
+                if done is not None and progress_cb is not None:
+                    progress_cb(percent(done, total), done)
+            code = proc.wait()
+        finally:
+            # Whatever went wrong here (the window gone, the app closing), an
+            # export nobody is following must not carry on by itself.
+            if proc.poll() is None:
+                proc.terminate()
+    if code != 0:
+        try:
+            LOG.info("export failed (ffmpeg exit %s): %s", code,
+                     " | ".join(said.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-6:]))
+        except OSError:
+            pass
+        raise RuntimeError("The export didn't finish.")
 
 
 def export(project: dict, files, dest, quality: str = "best", progress_cb=None, on_proc=None) -> None:
@@ -171,15 +193,26 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
             name = f"plate{k}.png"
             scorebug.render(project["home"], project["away"], home, away, scale).save(work / name)
             plates.append((name, since, until))
-        (work / "graph.txt").write_text(filter_script(parts, plates, scorebug.layout(scale), "font.ttf", audio),
-                                        encoding="utf-8")
+        (work / "graph.txt").write_text(
+            filter_script(parts, plates, scorebug.layout(scale), "font.ttf",
+                          size=(infos[0]["width"], infos[0]["height"]), fps=infos[0]["fps"], audio=audio),
+            encoding="utf-8")
         dest.parent.mkdir(parents=True, exist_ok=True)
+        _write_out(dest, parts, plates, work, quality, infos, audio, total, progress_cb, on_proc)
+
+
+def _write_out(dest, parts, plates, work, quality, infos, audio, total, progress_cb, on_proc) -> None:
+    try:
         with complete_or_nothing(dest) as part:
-            # The hardware encoder is given a bitrate to aim for: 1.3 times the
-            # source's, but never so little that the bug's lettering goes soft
-            # (about 0.07 bits a pixel a frame, some 4.4 Mbit/s at 1080 lines).
-            enough = infos[0]["width"] * infos[0]["height"] * 30 * 0.07 / 1000 / 1.3
-            cmd = build_cmd(parts, [name for name, _, _ in plates], part.resolve(), quality,
-                            max(infos[0]["bitrate"] or 0, enough), audio)
-            cmd[0] = ffmpeg_path()
-            run(cmd, total, work, progress_cb, on_proc)
+                # The hardware encoder is given a bitrate to aim for: 1.3 times the
+                # source's, but never so little that the bug's lettering goes soft
+                # (about 0.07 bits a pixel a frame, some 4.4 Mbit/s at 1080 lines).
+                enough = infos[0]["width"] * infos[0]["height"] * 30 * 0.07 / 1000 / 1.3
+                cmd = build_cmd(parts, [name for name, _, _ in plates], part.resolve(), quality,
+                                max(infos[0]["bitrate"] or 0, enough), audio)
+                cmd[0] = ffmpeg_path()
+                run(cmd, total, work, progress_cb, on_proc)
+    except PermissionError as error:
+        # Windows won't replace a video that is open: the earlier export is playing somewhere.
+        raise RuntimeError("The earlier export is open in a player, so it couldn't be replaced. "
+                           "Close it and export again.") from error

@@ -425,11 +425,16 @@ class Api:
             left = (seconds_done * 100 / percent - seconds_done) if percent else 0     # video seconds still to go
             self._emit("export_progress", {"id": game_id, "percent": percent, "eta": rate.eta(left)})
 
+        def started(proc):
+            self._export_proc = proc
+            if self._export_stopped:        # Stop was pressed while the export was still getting ready
+                proc.terminate()
+
         def work():
             done = {"id": game_id, "ok": False, "stopped": False}
             try:
                 path = self._w().export_edit(g.id, g.date, g.opponent, "faster" if quality == "faster" else "best",
-                                             on_progress, lambda proc: setattr(self, "_export_proc", proc))
+                                             on_progress, started)
                 done.update(ok=True, label="Edited game", url=self._url(path))
                 platform_tasks.notify(f"Exported vs {g.opponent or g.title} with the score bug")
             except Exception as e:
@@ -704,6 +709,7 @@ class Api:
 
     def quit_app(self):
         self._quitting = True
+        self.export_stop()                  # an export must not carry on after the app has gone
         self._quit_soon()
         return {"ok": True}
 
@@ -1053,6 +1059,7 @@ def main():
     instance.stop()
     if api._tray:
         api._tray.stop()
+    api.export_stop()           # however the window loop ended, no export is left running behind it
     os._exit(0)
 
 
