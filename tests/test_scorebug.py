@@ -27,9 +27,16 @@ def test_every_typeface_on_offer_is_shipped_with_its_licence():
 
 
 def test_a_bug_style_is_tidied():
-    assert scorebug.style(None) == {"size": 1.0, "font": "barlow"} == scorebug.style("junk")
-    assert scorebug.style({"size": 1.4, "font": "anton"}) == {"size": 1.4, "font": "anton"}
-    assert scorebug.style({"size": 9, "font": "comic"}) == {"size": 2.0, "font": "barlow"}
+    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10}
+    assert scorebug.style(None) == usual == scorebug.style("junk")
+    assert scorebug.style({"size": 1.4, "font": "anton"}) == {**usual, "size": 1.4, "font": "anton"}
+    assert scorebug.style({"size": 9, "font": "comic"}) == {**usual, "size": 2.0}
+    mine = scorebug.style({"color": "#0A2A5C", "clock": 0, "strip": 30})
+    assert (mine["color"], mine["clock"], mine["strip"]) == ("#0a2a5c", 0, 30)
+    wild = scorebug.style({"color": "navy", "clock": 900, "strip": -3})
+    assert (wild["color"], wild["clock"], wild["strip"]) == ("#2d0a3c", 100, 3)
+    assert scorebug.style({"clock": "x", "strip": True, "color": 7}) == usual and scorebug.style({"strip": 999})["strip"] == 40
+    assert [scorebug.style({"round": r})["round"] for r in (0, 23, 99, -1, "x")] == [0, 23, 23, 0, 10]
     assert scorebug.style({"size": 0.1})["size"] == 0.5 and scorebug.style({"size": "big"})["size"] == 1.0
     assert scorebug.style({"size": True})["size"] == 1.0 and scorebug.style({"size": float("nan")})["size"] == 1.0
 
@@ -147,6 +154,57 @@ def test_the_clock_is_set_as_big_as_the_score():
         size = scorebug.layout(1.0, HOME, AWAY, {"font": font})["clock"]["size"]
         zero = ImageFont.truetype(str(scorebug.font_path(font)), size).getbbox("0")
         assert abs((score_zero[3] - score_zero[1]) - (zero[3] - zero[1])) <= 2, font
+
+
+def test_the_timer_box_can_be_made_smaller_or_roomier():
+    for font in scorebug.FONTS:
+        tight = scorebug.layout(1.0, HOME, AWAY, {"font": font, "clock": 0})["clock"]
+        usual = scorebug.layout(1.0, HOME, AWAY, {"font": font})["clock"]
+        roomy = scorebug.layout(1.0, HOME, AWAY, {"font": font, "clock": 100})["clock"]
+        assert tight["width"] < usual["width"] - 15 and roomy["width"] > usual["width"] + 15, font
+        wide = max(ImageFont.truetype(str(scorebug.font_path(font)), tight["size"]).getlength(d) for d in "0123456789")
+        assert tight["slots"][0] - wide / 2 >= 2 and tight["slots"][4] + wide / 2 <= tight["width"] - 2, font   # digits still inside
+        assert abs((tight["slots"][0] + tight["slots"][4]) / 2 - tight["width"] / 2) <= 1.5, font
+    small, usual = scorebug.size(HOME, AWAY, bug={"clock": 0}), scorebug.size(HOME, AWAY)
+    assert small[0] < usual[0] - 15 and small[1] == usual[1]            # the bar moves up beside it
+
+
+def test_the_bar_takes_the_colour_you_give_it_and_keeps_its_names_readable():
+    navy = scorebug.render(HOME, AWAY, 0, 0, bug={"color": "#0a2a5c"})
+    left, _ = _score_box(navy)
+    assert _near(navy.getpixel((left - 20, 5)), (10, 42, 92))
+    assert _ink(navy, (left - 110, 12, left - 22, 46), dark=False) is not None       # white names on a dark bar
+    pale = scorebug.render(HOME, AWAY, 0, 0, bug={"color": "#f2e9c8"})
+    assert _near(pale.getpixel((left - 20, 5)), (242, 233, 200))
+    assert _ink(pale, (left - 110, 12, left - 22, 46)) is not None                   # dark names on a light bar
+    # The score box stands out from a white bar too.
+    white = scorebug.render(HOME, AWAY, 0, 0, bug={"color": "#ffffff"})
+    assert not _near(white.getpixel((left + 6, 12)), (255, 255, 255), slack=6)
+
+
+def test_the_team_colour_strips_can_be_made_wider():
+    usual, wide = scorebug.render(HOME, AWAY, 0, 0), scorebug.render(HOME, AWAY, 0, 0, bug={"strip": 30})
+    assert wide.size[0] - usual.size[0] in (57, 58) and wide.size[1] == usual.size[1]     # 23 more each side, at 1.25
+    start = scorebug.layout()["clock"]["width"] + 21
+    green = lambda plate: sum(_near(plate.getpixel((x, 29)), (22, 160, 90)) for x in range(start - 6, start + 60))
+    blue = lambda plate: sum(_near(plate.getpixel((x, 29)), (30, 90, 200)) for x in range(plate.size[0] - 60, plate.size[0]))
+    assert 7 <= green(usual) <= 10 and 36 <= green(wide) <= 39 and 7 <= blue(usual) <= 10 and 36 <= blue(wide) <= 39
+    # The name has moved along, clear of the wider strip.
+    assert all(_near(wide.getpixel((start + 44, y)), (45, 10, 60)) for y in range(4, 54))
+
+
+def test_the_corners_go_from_square_to_fully_round():
+    square, usual, pill = (scorebug.render(HOME, AWAY, 0, 0, bug={"round": r}) for r in (0, 10, 23))
+    assert square.size == usual.size and pill.size[1] == usual.size[1]
+    corner = lambda plate, inset: plate.getpixel((inset, inset))[3]
+    assert corner(square, 0) > 200 and corner(usual, 0) < 40 and corner(usual, 5) > 200 and corner(pill, 6) < 40
+    assert square.getpixel((square.size[0] - 3, 55))[3] > 200 and pill.getpixel((pill.size[0] - 7, 51))[3] < 40
+    left, right = _score_box(square)
+    assert _near(square.getpixel((left + 1, 9)), (255, 255, 255))                    # the score box is square too
+    for font in scorebug.FONTS:                                                       # the clock keeps clear of round ends
+        lay = scorebug.layout(1.0, HOME, AWAY, {"font": font, "round": 23, "clock": 0})["clock"]
+        wide = max(ImageFont.truetype(str(scorebug.font_path(font)), lay["size"]).getlength(d) for d in "0123456789")
+        assert lay["slots"][0] - wide / 2 >= 6, font
 
 
 def test_a_plate_can_be_handed_over_as_a_png():

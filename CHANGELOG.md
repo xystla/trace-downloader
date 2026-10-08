@@ -4,7 +4,7 @@ What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
 ## 1.6.0
-- A game Editor: mark where a saved game starts, pauses, resumes and ends and where each goal was scored, enter both teams and their colours, and export the game with the breaks cut out and a score bug on top. The bug keeps the score and a running clock, grows to fit team names of any length, and comes in six fonts and any size from half to double; the picture and sound fade at each break. Point at a dot on the Editor's timeline to see what it is. The original video is never changed; the export is saved in the game's Edited folder and plays on the game's page.
+- A game Editor: mark where a saved game starts, pauses, resumes and ends and where each goal was scored, enter both teams and their colours, and export the game with the breaks cut out and a score bug on top. The bug keeps the score and a running clock, grows to fit team names of any length, and can be made your own: six fonts, any size from half to double, your choice of background colour, square to fully round corners, a narrower or wider timer box, and wider team colour strips; the picture and sound fade at each break. Point at a dot on the Editor's timeline to see what it is. The original video is never changed; the export is saved in the game's Edited folder and plays on the game's page.
 
 ## 1.5.0
 - Full-game downloads now carry on where they stopped. Stop one, lose your connection, close the app or let the computer sleep, and Resume picks up from there instead of starting over. Discard throws away a download you no longer want.

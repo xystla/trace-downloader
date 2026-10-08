@@ -2916,6 +2916,8 @@ function edRender() {
   el("edFont").value = ed.project.bug.font;
   if (document.activeElement !== el("edSize")) el("edSize").value = Math.round(ed.project.bug.size * 100);
   el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
+  el("edBarColor").value = ed.project.bug.color;
+  for (const [id, field] of ED_SLIDERS) if (document.activeElement !== el(id)) el(id).value = ed.project.bug[field];
   edParts.forEach((draw) => draw());
 }
 
@@ -2937,13 +2939,23 @@ function edOfferLooks(fonts, sizes) {
   Object.assign(el("edSize"), { min: Math.round(sizes[0] * 100), max: Math.round(sizes[1] * 100) });
 }
 el("edFont").onchange = () => { ed.project.bug.font = el("edFont").value; edSave(); };
-let edSizeWait = 0;
+let edLookWait = 0;
+const edLookSoon = () => {                   // while dragging, save (and redraw) only now and then
+  clearTimeout(edLookWait);
+  edLookWait = setTimeout(edSave, 150);
+};
 el("edSize").oninput = () => {
   ed.project.bug.size = Number(el("edSize").value) / 100;
   el("edSizeNow").textContent = el("edSize").value + "%";
-  clearTimeout(edSizeWait);
-  edSizeWait = setTimeout(edSave, 150);      // while dragging, save (and redraw) only now and then
+  edLookSoon();
 };
+// The timer box's room, the team colour strips' width and how round the corners are.
+const ED_SLIDERS = [["edClockRoom", "clock"], ["edStrip", "strip"], ["edRound", "round"]];
+for (const [id, field] of ED_SLIDERS) {
+  el(id).oninput = () => { ed.project.bug[field] = Number(el(id).value); edLookSoon(); };
+}
+el("edBarColor").oninput = () => { ed.project.bug.color = el("edBarColor").value; edLookSoon(); };
+el("edBarReset").onclick = (e) => { e.preventDefault(); ed.project.bug.color = "#2d0a3c"; edSave(); };
 
 document.querySelectorAll(".ed-team").forEach((row) => {
   const side = row.dataset.side;

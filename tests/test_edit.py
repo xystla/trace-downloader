@@ -80,11 +80,12 @@ def test_team_details_are_tidied():
 
 
 def test_the_bug_settings_travel_with_the_edit():
-    assert edit.clean({})["bug"] == {"size": 1.0, "font": "barlow"}
-    assert edit.clean({"bug": {"size": 1.5, "font": "anton"}})["bug"] == {"size": 1.5, "font": "anton"}
-    assert edit.clean({"bug": {"size": 40, "font": "wingdings"}})["bug"] == {"size": 2.0, "font": "barlow"}
-    fresh = edit.default_project("T", "R", None, {"size": 1.3, "font": "bebas"})
-    assert fresh["bug"] == {"size": 1.3, "font": "bebas"}
+    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10}
+    assert edit.clean({})["bug"] == usual
+    assert edit.clean({"bug": {"size": 1.5, "font": "anton"}})["bug"] == {**usual, "size": 1.5, "font": "anton"}
+    assert edit.clean({"bug": {"size": 40, "font": "wingdings"}})["bug"] == {**usual, "size": 2.0}
+    look = {"size": 1.3, "font": "bebas", "color": "#0a2a5c", "clock": 20, "strip": 18, "round": 0}
+    assert edit.default_project("T", "R", None, look)["bug"] == look
 
 
 def test_a_code_is_taken_from_the_name():
