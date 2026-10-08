@@ -1427,11 +1427,19 @@ function setSaved(g, id) {
     b.classList.add("done");
     return b;
   };
+  // "Edit game" shares Open Folder's place as a small scissors button, so a card
+  // keeps to two rows of buttons; on the game's own page, where there is room, it is spelled out.
+  const edit = node("button", "icon-btn edit-game");
+  edit.innerHTML = icon("cut");
+  edit.append(node("span", "", "Edit game"));
+  edit.title = "Edit game: cut the breaks and add a score bug in the Editor.";
+  edit.setAttribute("aria-label", "Edit game");
+  edit.onclick = () => { showView("editor"); openEditor(id); };
+  const pair = node("div", "pair");
+  pair.append(done("folder", "Open Folder", "Show the game video in its folder.", () => run((gameId) => api().reveal_game(gameId))), edit);
   g.querySelector(".action").replaceChildren(
     done("play", "Watch Game", "The game is saved. Click to play it.", () => run((gameId) => api().play_game(gameId))),
-    done("folder", "Open Folder", "Show the game video in its folder.", () => run((gameId) => api().reveal_game(gameId))),
-    labelButton("cut", "Edit game", "Cut the breaks and add a score bug in the Editor.", () => { showView("editor"); openEditor(id); }),
-    highlightsButton(id), recapsButton(g, id));
+    pair, highlightsButton(id), recapsButton(g, id));
   if (highlightsRunning.has(id)) { setNote(id, "Cutting team highlights…", true); setMini(id, null); }
   attachPlayer(g, id);
 }

@@ -189,7 +189,11 @@ main { flex:1; min-width:0; overflow-y:auto; }
 .score.win { color:var(--accent-text); background:var(--accent-soft); }
 .score.loss { color:var(--danger); background:var(--danger-soft); }
 .action { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; }
-.game > .action > button:not(.icon-btn) { padding:8px 11px; font-size:13px; }
+.game > .action > button:not(.icon-btn), .game > .action > .pair > button:not(.icon-btn) { padding:8px 11px; font-size:13px; }
+/* Open Folder with the small "Edit game" scissors beside it. */
+.action > .pair { display:flex; gap:6px; min-width:0; }
+.action > .pair > button:first-child { flex:1 1 auto; min-width:0; }
+.edit-game > span { display:none; }
 button.done { color:var(--accent-text); }
 .state { display:inline-flex; align-items:center; gap:5px; font-size:13px; padding:0 6px; }
 .state.saved { color:var(--accent-text); }
@@ -235,6 +239,7 @@ button.done { color:var(--accent-text); }
 .games.is-cards .game > .action { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .games.is-cards .game > .action > .wide, .games.is-cards .game > .action > .state { grid-column:1 / -1; }
 .games.is-cards .game > .action > .state { justify-content:center; padding:8px 0; }
+.games.is-cards .game > .action > .pair { gap:8px; }
 .games.is-cards .hl-players { grid-template-columns:minmax(0,1fr); }
 .games.is-cards .hl-row { flex-wrap:wrap; }
 /* ---- single layout: one game at a time, as large as the window allows ---- */
@@ -250,7 +255,10 @@ button.done { color:var(--accent-text); }
 .games.is-single .score { font-size:15px; padding:5px 12px; }
 .games.is-single .game > .action { justify-content:stretch; gap:10px; flex-wrap:nowrap; }
 .games.is-single .game > .action > * { flex:1 1 0; }
-.games.is-single .game > .action > button { padding:13px 12px; font-size:15px; }
+.games.is-single .game > .action > button, .games.is-single .game > .action > .pair > button { padding:13px 12px; font-size:15px; }
+.games.is-single .game > .action > .pair { flex:2 1 0; gap:10px; }
+.games.is-single .game > .action > .pair > button { flex:1 1 0; }
+.games.is-single .edit-game > span { display:inline; }
 .games.is-single .game > .action > .state { justify-content:center; }
 .games:not(.is-single) .game { cursor:pointer; }
 /* Clicking a game opens its own page: say so on the thumbnail when pointed at. */
