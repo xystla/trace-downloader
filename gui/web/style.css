@@ -623,7 +623,7 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 /* The picker is up here when no game is open or the window is narrow: keep it clear of what is below. */
 #edHead { margin-bottom:12px; }
 .ed-side > #edGame { margin-bottom:0; }
-.ed-stage .ed-look { grid-template-columns:86px minmax(0, 1fr) 44px; }
+#edExposure + output, #edContrast + output, #edSaturation + output { min-width:30px; }
 #edFrame video { display:block; width:100%; height:auto; aspect-ratio:16 / 9; background:#000; object-fit:contain; }
 .ed-buttons { display:flex; flex-wrap:nowrap; gap:5px; }
 .ed-buttons button { flex:1 1 auto; min-width:0; padding:8px 6px; gap:5px; font-size:13px; white-space:nowrap; }

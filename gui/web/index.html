@@ -243,12 +243,6 @@
           <div id="edNow" class="caption ed-now"></div>
           <div id="edTimeline" class="timeline"></div>
           <div id="edLegend" class="legend ed-legend"></div>
-          <div class="card ed-card">
-            <h3>Picture <button type="button" id="edGradeReset" class="ed-reset">Reset</button></h3>
-            <label class="ed-look"><span>Exposure</span><input type="range" id="edExposure" min="-100" max="100" step="1" value="0" aria-label="Exposure: darker to brighter"><output>0</output></label>
-            <label class="ed-look"><span>Contrast</span><input type="range" id="edContrast" min="-100" max="100" step="1" value="0" aria-label="Contrast: flatter to punchier"><output>0</output></label>
-            <label class="ed-look"><span>Saturation</span><input type="range" id="edSaturation" min="-100" max="100" step="1" value="0" aria-label="Saturation: black and white to vivid"><output>0</output></label>
-          </div>
         </div>
         <div class="ed-side" id="edSide">
           <div class="card ed-card">
@@ -265,6 +259,12 @@
               <input type="text" class="ed-code" maxlength="40" placeholder="On the score bug" aria-label="Opponent's name as shown on the score bug" title="Shown on the score bug. A longer name makes the bug wider.">
               <button type="button" class="ed-crest" data-crest="away"></button>
             </div>
+          </div>
+          <div class="card ed-card">
+            <h3>Picture <button type="button" id="edGradeReset" class="ed-reset">Reset</button></h3>
+            <label class="ed-look"><span>Exposure</span><input type="range" id="edExposure" min="-100" max="100" step="1" value="0" aria-label="Exposure: darker to brighter"><output>0</output></label>
+            <label class="ed-look"><span>Contrast</span><input type="range" id="edContrast" min="-100" max="100" step="1" value="0" aria-label="Contrast: flatter to punchier"><output>0</output></label>
+            <label class="ed-look"><span>Saturation</span><input type="range" id="edSaturation" min="-100" max="100" step="1" value="0" aria-label="Saturation: black and white to vivid"><output>0</output></label>
           </div>
           <div class="card ed-card">
             <h3>Score bug <button type="button" id="edBugReset" class="ed-reset" title="Put every score bug setting back to how it starts. Teams and crests are kept.">Reset</button></h3>
