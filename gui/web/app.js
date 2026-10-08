@@ -2925,6 +2925,7 @@ function edRender() {
   if (document.activeElement !== el("edSize")) el("edSize").value = Math.round(ed.project.bug.size * 100);
   el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
   el("edBarColor").value = ed.project.bug.color;
+  el("edTimerSide").value = ed.project.bug.timer;
   for (const [id, field] of ED_SLIDERS) if (document.activeElement !== el(id)) el(id).value = ed.project.bug[field];
   edParts.forEach((draw) => draw());
 }
@@ -2947,6 +2948,7 @@ function edOfferLooks(fonts, sizes) {
   Object.assign(el("edSize"), { min: Math.round(sizes[0] * 100), max: Math.round(sizes[1] * 100) });
 }
 el("edFont").onchange = () => { ed.project.bug.font = el("edFont").value; edSave(); };
+el("edTimerSide").onchange = () => { ed.project.bug.timer = el("edTimerSide").value; edSave(); };
 let edLookWait = 0;
 const edLookSoon = () => {                   // while dragging, save (and redraw) only now and then
   clearTimeout(edLookWait);

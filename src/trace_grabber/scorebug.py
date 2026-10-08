@@ -39,7 +39,7 @@ ROUNDS = (0, 23)                # corners: square, up to the bug's ends being ha
 NAME, NAME_SIZE, NAME_PAD = 95, 28, 14      # a name's room (at least), its type size, the space at its sides
 DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
 WHITE, INK = (255, 255, 255), (28, 18, 38)
-USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10}
+USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left"}
 CLOCK_COLOR = "#1c1226"
 _SMOOTH = 3                     # drawn this many times bigger, then shrunk, for smooth edges
 _FINE = 8                       # type is measured this many times bigger, for fractions of a pixel
@@ -70,7 +70,8 @@ def style(bug) -> dict:
             "font": font if isinstance(font, str) and font in FONTS else DEFAULT_FONT,
             "color": color.lower() if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color) else USUAL["color"],
             "clock": whole("clock", 0, 100),            # how roomy the timer's box is: 0 tight, 100 wide
-            "strip": whole("strip", *STRIPS), "round": whole("round", *ROUNDS)}
+            "strip": whole("strip", *STRIPS), "round": whole("round", *ROUNDS),
+            "timer": "right" if bug.get("timer") == "right" else "left"}       # which side of the bar the timer is on
 
 
 @lru_cache(maxsize=64)
@@ -101,17 +102,20 @@ def _plan(home: dict, away: dict, bug: dict) -> dict:
     for step in steps:
         at += step
         slots.append(at)
-    bar = clock + GAP
     side = 2 * digit + 8                                   # room for a score of two digits
     dash = 16
     score_wide = math.ceil(2 * side + dash + 8)
     home_room = max(NAME, math.ceil(_wide(font, NAME_SIZE, home["code"])) + 2 * NAME_PAD)
     away_room = max(NAME, math.ceil(_wide(font, NAME_SIZE, away["code"])) + 2 * NAME_PAD)
+    bar_wide = end + home_room + score_wide + away_room + end
+    # The timer's box goes before the bar or after it; either way with a gap between.
+    clock_x, bar = (bar_wide + GAP, 0) if bug["timer"] == "right" else (0, clock + GAP)
     score = bar + end + home_room
-    return {"clock": clock, "slots": slots, "bar": bar, "home": bar + end + home_room / 2,
+    return {"clock": clock, "clock_x": clock_x, "slots": [clock_x + slot for slot in slots],
+            "bar": bar, "bar_wide": bar_wide, "home": bar + end + home_room / 2,
             "score": score, "score_wide": score_wide, "home_digit": score + 4 + side / 2,
             "dash": score + score_wide / 2, "away_digit": score + score_wide - 4 - side / 2,
-            "away": score + score_wide + away_room / 2, "width": score + score_wide + away_room + end}
+            "away": score + score_wide + away_room / 2, "width": clock + GAP + bar_wide}
 
 
 def _middle(face, glyph: str) -> float:
@@ -154,8 +158,8 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         face = _face(font, round(type_size * k))
         draw.text((cx * k, mid * k - _middle(face, like)), words, font=face, fill=fill, anchor="mm")
 
-    box(0, 0, plan["clock"], HEIGHT, corner, WHITE)                    # the clock's box
-    box(plan["bar"], 0, width - plan["bar"], HEIGHT, corner, bar)
+    box(plan["clock_x"], 0, plan["clock"], HEIGHT, corner, WHITE)      # the clock's box
+    box(plan["bar"], 0, plan["bar_wide"], HEIGHT, corner, bar)
     box(plan["bar"] + STRIP_AT, 8, strip, HEIGHT - 16, strip_corner, _rgb(home["color"]))
     text(plan["home"], home["code"], NAME_SIZE, names, "H")
     box(score, 6, plan["score_wide"], HEIGHT - 12, min(17, corner * 0.7), score_fill)      # the score
@@ -163,7 +167,7 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
     box(plan["dash"] - 4.5, mid - 1.6, 9, 3.2, 1, INK)                 # the dash, drawn: a typeface's own sits where it likes
     text(plan["away_digit"], str(away_score), DIGIT_SIZE, INK, "0")
     text(plan["away"], away["code"], NAME_SIZE, names, "H")
-    box(width - STRIP_AT - strip, 8, strip, HEIGHT - 16, strip_corner, _rgb(away["color"]))
+    box(plan["bar"] + plan["bar_wide"] - STRIP_AT - strip, 8, strip, HEIGHT - 16, strip_corner, _rgb(away["color"]))
     return plate.resize(final, Image.LANCZOS)
 
 
@@ -185,7 +189,8 @@ def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = Non
             "font": bug["font"],
             "clock": {"slots": [round(x * k) for x in plan["slots"]], "y": y,
                       "page_y": [round(y - _middle(face, glyph), 1) for glyph in "00:00"],
-                      "width": round(plan["clock"] * k), "size": type_size, "color": CLOCK_COLOR}}
+                      "x": round(plan["clock_x"] * k), "width": round(plan["clock"] * k),
+                      "size": type_size, "color": CLOCK_COLOR}}
 
 
 def png_bytes(image: Image.Image) -> bytes:

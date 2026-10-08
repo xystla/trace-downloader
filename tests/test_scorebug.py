@@ -27,7 +27,7 @@ def test_every_typeface_on_offer_is_shipped_with_its_licence():
 
 
 def test_a_bug_style_is_tidied():
-    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10}
+    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left"}
     assert scorebug.style(None) == usual == scorebug.style("junk")
     assert scorebug.style({"size": 1.4, "font": "anton"}) == {**usual, "size": 1.4, "font": "anton"}
     assert scorebug.style({"size": 9, "font": "comic"}) == {**usual, "size": 2.0}
@@ -205,6 +205,22 @@ def test_the_corners_go_from_square_to_fully_round():
         lay = scorebug.layout(1.0, HOME, AWAY, {"font": font, "round": 23, "clock": 0})["clock"]
         wide = max(ImageFont.truetype(str(scorebug.font_path(font)), lay["size"]).getlength(d) for d in "0123456789")
         assert lay["slots"][0] - wide / 2 >= 6, font
+
+
+def test_the_timer_can_sit_on_the_right_of_the_bar():
+    assert [scorebug.style({"timer": t})["timer"] for t in ("right", "left", "top", 3)] == ["right", "left", "left", "left"]
+    left, right = scorebug.layout(1.0, HOME, AWAY), scorebug.layout(1.0, HOME, AWAY, {"timer": "right"})
+    assert (right["width"], right["height"], right["x"], right["y"]) == (left["width"], left["height"], left["x"], left["y"])
+    assert left["clock"]["x"] == 0 and right["clock"]["width"] == left["clock"]["width"]
+    assert abs(right["clock"]["x"] - (right["width"] - right["clock"]["width"])) <= 1
+    moved = right["clock"]["x"]
+    assert all(abs(b - a - moved) <= 1 for a, b in zip(left["clock"]["slots"], right["clock"]["slots"]))
+    plate = scorebug.render(HOME, AWAY, 0, 0, bug={"timer": "right"})
+    assert plate.size == (left["width"], left["height"])
+    assert _near(plate.getpixel((15, 29)), (22, 160, 90))                               # the bar starts the bug, home strip first
+    assert _near(plate.getpixel((moved + 20, 29)), (255, 255, 255)) and plate.getpixel((moved + 20, 29))[3] > 200   # then the empty timer box
+    assert plate.getpixel((moved - 5, 29))[3] == 0                                      # after a gap
+    assert _near(plate.getpixel((moved - 25, 29)), (30, 90, 200))                       # which follows the away strip
 
 
 def test_a_plate_can_be_handed_over_as_a_png():

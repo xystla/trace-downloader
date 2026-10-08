@@ -67,7 +67,7 @@ def test_a_saved_edit_comes_back_and_your_team_is_remembered_for_the_next_game(e
     _video(ed, "2026-09-22_vs-rivals.mp4")
     project = ed.edit_open(*ed.args, "Tiger Sharks", "Rivals")["project"]
     project["home"].update(code="TSH", color="#ff8800")
-    project["bug"] = {"size": 1.4, "font": "bebas", "color": "#0a2a5c", "clock": 10, "strip": 20, "round": 23}
+    project["bug"] = {"size": 1.4, "font": "bebas", "color": "#0a2a5c", "clock": 10, "strip": 20, "round": 23, "timer": "right"}
     project["marks"] = MARKS
     kept = ed.edit_save(*ed.args, project)
     assert kept["home"]["code"] == "TSH" and (ed.game_root / "Edit" / "edit.json").exists()
@@ -77,7 +77,7 @@ def test_a_saved_edit_comes_back_and_your_team_is_remembered_for_the_next_game(e
     (other / "2026-09-29_vs-united.mp4").write_bytes(b"x")
     fresh = ed.edit_open("demo-8", "2026-09-29", "United", "Tiger Sharks", "United")["project"]
     assert fresh["home"] == {"name": "Tiger Sharks", "code": "TSH", "color": "#ff8800"} and fresh["away"]["code"] == "UNI"
-    assert fresh["bug"] == {"size": 1.4, "font": "bebas", "color": "#0a2a5c", "clock": 10, "strip": 20, "round": 23}                # the bug's look carries over too
+    assert fresh["bug"] == {"size": 1.4, "font": "bebas", "color": "#0a2a5c", "clock": 10, "strip": 20, "round": 23, "timer": "right"}                # the bug's look carries over too
 
 
 def test_two_half_files_are_edited_as_one_game(ed):
