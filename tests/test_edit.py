@@ -133,7 +133,7 @@ def test_the_bug_settings_travel_with_the_edit():
     assert edit.clean({"bug": {"size": 1.5, "font": "anton"}})["bug"] == {**usual, "size": 1.5, "font": "anton"}
     assert edit.clean({"bug": {"size": 40, "font": "wingdings"}})["bug"] == {**usual, "size": 2.0}
     assert usual["font"] == "bebas" and usual["timer"] == "right"                # the look a first edit starts with
-    look = {"size": 1.3, "font": "bebas", "color": "#0a2a5c", "clock": 20, "strip": 18, "round": 0, "timer": "right", "animate": False, "design": "slim", "color2": "#ff5500"}
+    look = {"size": 1.3, "font": "bebas", "color": "#0a2a5c", "clock": 20, "strip": 18, "round": 0, "timer": "right", "animate": False, "design": "slim", "color2": "#ff5500", "crest_shadow": True, "timer_full": True, "timer_text": 80}
     assert edit.default_project("T", "R", None, look)["bug"] == look
 
 

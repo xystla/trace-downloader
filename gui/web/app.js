@@ -2958,6 +2958,7 @@ function edRender() {
   edGradeVideo();
   el("edTimerSide").value = ed.project.bug.timer;
   el("edAnimate").checked = ed.project.bug.animate;
+  for (const [id, field] of ED_SWITCHES) el(id).checked = ed.project.bug[field];
   for (const [id, field] of ED_SLIDERS) if (document.activeElement !== el(id)) el(id).value = ed.project.bug[field];
   edParts.forEach((draw) => draw());
 }
@@ -3039,7 +3040,12 @@ for (const [id, field] of ED_GRADE) {
 }
 el("edGradeReset").onclick = () => { ed.project.grade = { exposure: 0, contrast: 0, saturation: 0 }; edSave(); };
 // The timer box's room, the team colour strips' width and how round the corners are.
-const ED_SLIDERS = [["edClockRoom", "clock"], ["edStrip", "strip"], ["edRound", "round"]];
+const ED_SLIDERS = [["edClockRoom", "clock"], ["edStrip", "strip"], ["edRound", "round"], ["edTimerText", "timer_text"]];
+// On-or-off looks: the timer's box as tall as the bar, and a shadow under the crests.
+const ED_SWITCHES = [["edTimerFull", "timer_full"], ["edCrestShadow", "crest_shadow"]];
+for (const [id, field] of ED_SWITCHES) {
+  el(id).onchange = () => { ed.project.bug[field] = el(id).checked; edSave(); };
+}
 for (const [id, field] of ED_SLIDERS) {
   el(id).oninput = () => { ed.project.bug[field] = Number(el(id).value); edLookSoon(); };
 }

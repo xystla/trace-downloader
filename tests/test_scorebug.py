@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from PIL import Image, ImageChops, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from trace_grabber import scorebug
 
@@ -10,7 +10,7 @@ SHIPPED = dict(scorebug.USUAL)
 # These tests measure a plain look (timer on the left, rounded, the first typeface)
 # so their numbers stay put when the look the app starts with changes.
 PLAIN = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left",
-         "animate": True, "design": "classic", "color2": ""}
+         "animate": True, "design": "classic", "color2": "", "crest_shadow": False, "timer_full": False, "timer_text": 100}
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +20,7 @@ def plain_look(monkeypatch):
 
 def test_the_look_the_app_starts_with():
     assert SHIPPED == {"size": 1.15, "font": "bebas", "color": "#2d0a3c", "clock": 55, "strip": 7, "round": 0, "timer": "right",
-                       "animate": True, "design": "classic", "color2": ""}
+                       "animate": True, "design": "classic", "color2": "", "crest_shadow": False, "timer_full": False, "timer_text": 100}
     assert set(SHIPPED) == set(PLAIN) and SHIPPED["font"] in scorebug.FONTS and SHIPPED["design"] in scorebug.DESIGNS
 
 
@@ -53,7 +53,7 @@ def test_every_typeface_on_offer_is_shipped_with_its_licence():
 
 
 def test_a_bug_style_is_tidied():
-    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic", "color2": ""}
+    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic", "color2": "", "crest_shadow": False, "timer_full": False, "timer_text": 100}
     assert scorebug.style(None) == usual == scorebug.style("junk")
     assert scorebug.style({"size": 1.4, "font": "anton"}) == {**usual, "size": 1.4, "font": "anton"}
     assert scorebug.style({"size": 9, "font": "comic"}) == {**usual, "size": 2.0}
@@ -406,6 +406,50 @@ def test_a_league_crest_stands_to_the_left_of_the_whole_bug():
     wide = scorebug.render(HOME, AWAY, 0, 0, crests={"league": _crest(teal, (400, 100))})                       # a wide crest keeps its shape
     rows = [y for y in range(wide.size[1]) if _near(wide.getpixel((28, y)), teal)]
     assert 12 <= len(rows) <= 17 and abs((rows[0] + rows[-1]) / 2 - 28.5) <= 1.5
+
+
+def test_the_timer_box_can_be_the_full_height_of_the_bar():
+    assert [scorebug.style({"timer_full": v})["timer_full"] for v in (True, False, 1, "yes", None)] == [True, False, False, False, False]
+    plate, lay = scorebug.render(HOME, AWAY, 0, 0, bug={"timer_full": True}), scorebug.layout(1.0, HOME, AWAY, {"timer_full": True})
+    x = lay["clock"]["x"] + lay["clock"]["width"] // 2
+    rows = [y for y in range(plate.size[1]) if plate.getpixel((x, y))[3] > 128 and _near(plate.getpixel((x, y)), (255, 255, 255))]
+    assert rows[0] <= 1 and rows[-1] >= plate.size[1] - 2                              # top to bottom
+    assert plate.size == scorebug.size(HOME, AWAY) and lay["clock"] == scorebug.layout(1.0, HOME, AWAY)["clock"]    # nothing else moves
+    assert plate.getpixel((0, 0))[3] < 40 and scorebug.render(HOME, AWAY, 0, 0, bug={"timer_full": True, "round": 0}).getpixel((1, 1))[3] > 200
+
+
+def test_the_timer_digits_can_be_set_smaller_than_the_score():
+    assert [scorebug.style({"timer_text": v})["timer_text"] for v in (70, 100, 20, 400, "x")] == [70, 100, 50, 100, 100]
+    for font in scorebug.FONTS:
+        full, small = (scorebug.layout(1.0, HOME, AWAY, {"font": font, "timer_text": t})["clock"] for t in (100, 60))
+        assert abs(small["size"] - full["size"] * 0.6) <= 1 and small["y"] == full["y"], font
+        assert small["width"] < full["width"] - 15, font                                # the box closes in around them
+        wide = max(ImageFont.truetype(str(scorebug.font_path(font)), small["size"]).getlength(d) for d in "0123456789")
+        assert small["slots"][1] - small["slots"][0] >= wide and small["slots"][0] - wide / 2 >= 6, font
+        assert abs((small["slots"][0] + small["slots"][4]) / 2 - small["width"] / 2) <= 1.5, font
+    # The score's own digits stay as they were.
+    a, b = scorebug.render(HOME, AWAY, 3, 2, bug={"timer": "right"}), scorebug.render(HOME, AWAY, 3, 2, bug={"timer": "right", "timer_text": 60})
+    plan = scorebug._plan(HOME, AWAY, scorebug.style({"timer": "right"}))
+    left, right = round(plan["score"] * scorebug.BIG), round((plan["score"] + plan["score_wide"]) * scorebug.BIG)
+    assert plan["score"] == scorebug._plan(HOME, AWAY, scorebug.style({"timer": "right", "timer_text": 60}))["score"]
+    same = ImageChops.difference(a.crop((left, 0, right, 58)), b.crop((left, 0, right, 58)))
+    assert max(high for _, high in same.getextrema()) <= 8
+
+
+def test_crests_can_have_a_slight_shadow():
+    assert [scorebug.style({"crest_shadow": v})["crest_shadow"] for v in (True, False, "on", None)] == [True, False, False, False]
+    crest = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+    ImageDraw.Draw(crest).ellipse([40, 40, 160, 160], fill=(255, 120, 0, 255))        # a round badge with clear corners
+    flat = scorebug.render(HOME, AWAY, 0, 0, bug={"round": 0}, crests={"league": crest, "home": crest})
+    lifted = scorebug.render(HOME, AWAY, 0, 0, bug={"round": 0, "crest_shadow": True}, crests={"league": crest, "home": crest})
+    assert flat.size == lifted.size
+    # Just below and right of the league badge something soft and dark appears where there was nothing.
+    assert flat.getpixel((43, 43))[3] == 0 and 15 < lifted.getpixel((43, 43))[3] < 160 and sum(lifted.getpixel((43, 43))[:3]) < 60
+    assert lifted.getpixel((12, 12))[3] < 12                                           # and it falls away from the light, not all round
+    # The badge itself is untouched, and so is everything away from the crests.
+    assert lifted.getpixel((29, 29)) == flat.getpixel((29, 29)) and _near(lifted.getpixel((29, 29)), (255, 120, 0))
+    assert lifted.crop((lifted.size[0] - 150, 0, lifted.size[0], 58)).tobytes() == flat.crop((flat.size[0] - 150, 0, flat.size[0], 58)).tobytes()
+    assert scorebug.render(HOME, AWAY, 0, 0, bug={"crest_shadow": True}).tobytes() == scorebug.render(HOME, AWAY, 0, 0).tobytes()
 
 
 def test_a_plate_can_be_handed_over_as_a_png():

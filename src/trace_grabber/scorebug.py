@@ -13,7 +13,7 @@ from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import paths
 
@@ -51,7 +51,7 @@ DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
 WHITE, INK = (255, 255, 255), (28, 18, 38)
 # How the bug looks until the person changes it.
 USUAL = {"size": 1.15, "font": "bebas", "color": "#2d0a3c", "clock": 55, "strip": 7, "round": 0, "timer": "right",
-         "animate": True, "design": "classic", "color2": ""}
+         "animate": True, "design": "classic", "color2": "", "crest_shadow": False, "timer_full": False, "timer_text": 100}
 CLOCK_COLOR = "#1c1226"
 SLIDE = (0.6, 0.5)              # seconds the bug takes to slide in as the game starts, and out as it ends
 _SMOOTH = 3                     # drawn this many times bigger, then shrunk, for smooth edges
@@ -86,6 +86,9 @@ def style(bug) -> dict:
             "strip": whole("strip", *STRIPS), "round": whole("round", *ROUNDS),
             "timer": bug.get("timer") if bug.get("timer") in ("left", "right") else USUAL["timer"],     # which side of the bar the timer is on
             "animate": bug.get("animate") is not False,
+            "crest_shadow": bug.get("crest_shadow") is True,            # a slight shadow under each crest
+            "timer_full": bug.get("timer_full") is True,                # the timer's box as tall as the bar (else as the score's)
+            "timer_text": whole("timer_text", 50, 100),                 # the timer's digits, as a percent of the score's
             "design": bug.get("design") if isinstance(bug.get("design"), str) and bug.get("design") in DESIGNS else "classic",
             # A second colour makes the bar fade from the first (left) to it (right); "" for one plain colour.
             "color2": bug["color2"].lower() if isinstance(bug.get("color2"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", bug["color2"]) else ""}
@@ -116,8 +119,9 @@ def _plan(home: dict, away: dict, bug: dict, crests=None) -> dict:
     gap = 0 if design == "slim" else GAP                                # the slim design keeps its timer inside the bar
     # Room at the timer's sides: what was asked for, and more when the ends are round.
     pad = 2 + bug["clock"] / 5 + max(0, bug["round"] - 10) / 3
-    digit = max(_wide(font, DIGIT_SIZE, d) for d in "0123456789")
-    colon = _wide(font, DIGIT_SIZE, ":")
+    score_digit = max(_wide(font, DIGIT_SIZE, d) for d in "0123456789")
+    # The timer's digits may be set smaller than the score's; their box closes in around them.
+    digit, colon = score_digit * bug["timer_text"] / 100, _wide(font, DIGIT_SIZE, ":") * bug["timer_text"] / 100
     # The clock's five glyphs (M M : S S) each have their own place, so the clock
     # doesn't shift sideways as the digits change width.
     steps = [digit / 2, digit + 1, digit / 2 + 1 + colon / 2, colon / 2 + 1 + digit / 2, digit + 1]
@@ -126,7 +130,7 @@ def _plan(home: dict, away: dict, bug: dict, crests=None) -> dict:
     for step in steps:
         at += step
         slots.append(at)
-    side = 2 * digit + 8                                   # room for a score of two digits
+    side = 2 * score_digit + 8                             # room for a score of two digits
     dash = 16
     score_wide = math.ceil(2 * side + dash + 8)
     # A team's part of the bar holds its name and, beside it on the outside, its crest if it has one.
@@ -250,7 +254,10 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         for centre, wide, team in ((plan["home"], plan["home_wide"], home), (plan["away"], plan["away_wide"], away)):
             box(centre - wide / 2, HEIGHT - 3.5 - weight, max(wide, 12), weight, weight / 2 if corner else 0, _rgb(team["color"]))
     else:
-        box(plan["clock_x"], 6, plan["clock"], HEIGHT - 12, inner, WHITE)                       # the clock's box
+        if bug["timer_full"]:
+            box(plan["clock_x"], 0, plan["clock"], HEIGHT, corner, WHITE)                       # the clock's box, as tall as the bar
+        else:
+            box(plan["clock_x"], 6, plan["clock"], HEIGHT - 12, inner, WHITE)                   # or as tall as the score's
     if design == "classic":
         fill_bar()
         digits = INK
@@ -291,6 +298,17 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         fit = room * k / max(picture.size)
         shown = picture.resize((max(1, round(picture.size[0] * fit)), max(1, round(picture.size[1] * fit))), Image.LANCZOS)
         at = (round(x * k + (room * k - shown.size[0]) / 2), round(y * k + (room * k - shown.size[1]) / 2))
+        if bug["crest_shadow"]:
+            # A soft dark copy of its shape, a little down and to the right, underneath it.
+            reach = max(2, round(2.5 * k))
+            shape = Image.new("L", (shown.size[0] + 4 * reach, shown.size[1] + 4 * reach), 0)
+            shape.paste(shown.getchannel("A"), (2 * reach, 2 * reach))
+            shape = shape.filter(ImageFilter.GaussianBlur(reach * 0.7)).point(lambda v: round(v * 0.55))
+            shadow = Image.new("RGBA", shape.size, (0, 0, 0, 0))
+            shadow.putalpha(shape)
+            under = Image.new("RGBA", plate.size, (0, 0, 0, 0))
+            under.paste(shadow, (at[0] - 2 * reach + round(1.2 * k), at[1] - 2 * reach + round(1.5 * k)))
+            plate.alpha_composite(under)
         plate.alpha_composite(shown, at)
     return plate.resize(final, Image.LANCZOS)
 
@@ -308,7 +326,7 @@ def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = Non
     k = scale * BIG * bug["size"]
     plan = _plan(home, away, bug, crests)
     width, height = size(home, away, scale, bug, crests)
-    type_size, y = round(DIGIT_SIZE * k), round(HEIGHT / 2 * k)
+    type_size, y = round(DIGIT_SIZE * bug["timer_text"] / 100 * k), round(HEIGHT / 2 * k)
     face = _face(bug["font"], type_size)
     return {"x": round(ORIGIN[0] * scale), "y": round(ORIGIN[1] * scale), "width": width, "height": height,
             "font": bug["font"], "slide": list(SLIDE) if bug["animate"] else None,
