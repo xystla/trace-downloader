@@ -295,10 +295,23 @@ def test_the_blocks_design_fills_each_side_with_its_team_colour():
     # A pale team colour gets dark letters.
     pale = scorebug.render({"code": "TIG", "color": "#ffe9a8"}, AWAY, 0, 0, bug=bug)
     assert _ink(pale, (start + 20, 12, left - 10, 46)) is not None
-    # More of the strip setting means more solid colour before it fades toward the middle.
-    far = round((plan["bar"] + (plan["score"] - plan["bar"]) * 0.8) * scorebug.BIG)
-    soft, solid = plate.getpixel((far, 5)), scorebug.render(HOME, AWAY, 2, 1, bug={**bug, "strip": 40}).getpixel((far, 5))
-    assert _near(solid, (22, 160, 90)) and not _near(soft, (22, 160, 90))
+    # Each name sits in the middle of its solid colour: the colour runs unbroken from the bar's end to
+    # as far past the name as it began before it, and only then fades toward the score.
+    for long in (HOME, {"code": "TIGER SHARKS UNITED", "color": "#16a05a"}):
+        wide = scorebug.render(long, AWAY, 2, 1, bug=bug)
+        p = scorebug._plan(long, AWAY, scorebug.style(bug))
+        first = round(p["bar"] * scorebug.BIG)
+        greens = [x for x in range(first, wide.size[0]) if _near(wide.getpixel((x, 5)), (22, 160, 90), slack=6)]
+        assert greens[0] <= first + 14 and abs((greens[0] + greens[-1]) / 2 - p["home"] * scorebug.BIG) <= 6, long["code"]
+        letters = _ink(wide, (first, 12, round(p["score"] * scorebug.BIG), 46), dark=False)
+        assert letters[0] > greens[0] + 8 and letters[2] < greens[-1] - 8, long["code"]         # the whole name is on solid colour
+        reds = [x for x in range(first, wide.size[0]) if _near(wide.getpixel((x, 5)), (30, 90, 200), slack=6)]
+        assert abs((reds[0] + reds[-1]) / 2 - p["away"] * scorebug.BIG) <= 6, long["code"]
+    # The strip setting is how sharply the colour gives way: at its most, no fade at all.
+    edge = round(plan["score"] * scorebug.BIG) - 4
+    soft, hard = plate.getpixel((edge, 5)), scorebug.render(HOME, AWAY, 2, 1, bug={**bug, "strip": 40})
+    hard_plan = scorebug._plan(HOME, AWAY, scorebug.style({**bug, "strip": 40}))
+    assert not _near(soft, (22, 160, 90)) and _near(hard.getpixel((round(hard_plan["score"] * scorebug.BIG) - 4, 5)), (22, 160, 90))
 
 
 def test_the_bar_can_fade_from_one_colour_to_another():
@@ -320,6 +333,53 @@ def test_the_bar_can_fade_from_one_colour_to_another():
     left, _ = _score_box(pale) if False else (round(scorebug._plan(HOME, AWAY, scorebug.style(None))["score"] * scorebug.BIG), 0)
     assert _ink(pale, (left - 100, 12, left - 20, 46)) is not None
     assert scorebug.layout(1.0, HOME, AWAY, {"design": "slim", "color": "#fff6c8", "color2": "#c8f0ff"})["clock"]["color"] == "#1c1226"
+
+
+def _crest(colour, size=(200, 240)):
+    return Image.new("RGBA", size, colour + (255,))
+
+
+def test_team_crests_sit_beside_the_names_and_make_room_for_themselves():
+    orange, pink = (255, 120, 0), (255, 0, 200)
+    plain = scorebug.render(HOME, AWAY, 0, 0)
+    for design in scorebug.DESIGNS:
+        bug = {"design": design}
+        bare = scorebug.size(HOME, AWAY, bug=bug)
+        both = {"home": _crest(orange), "away": _crest(pink)}
+        plate = scorebug.render(HOME, AWAY, 0, 0, bug=bug, crests=both)
+        assert plate.size == scorebug.size(HOME, AWAY, bug=bug, crests=both) and plate.size[0] > bare[0] + 15 and plate.size[1] == bare[1], design
+        row = [plate.getpixel((x, 29)) for x in range(plate.size[0])]
+        oranges, pinks = [x for x, p in enumerate(row) if _near(p, orange)], [x for x, p in enumerate(row) if _near(p, pink)]
+        # Each is there once, as tall as it can be without touching the bar's edges (this one is taller than wide).
+        assert 25 <= len(oranges) <= 34 and 25 <= len(pinks) <= 34 and max(oranges) < min(pinks), design
+        tall = [y for y in range(plate.size[1]) if _near(plate.getpixel((oranges[len(oranges) // 2], y)), orange)]
+        assert 32 <= len(tall) <= 40 and tall[0] >= 8 and tall[-1] <= 50, design
+        # The home crest comes before its name and the away crest after its name: the score is between them.
+        plan = scorebug._plan(HOME, AWAY, scorebug.style(bug), both)
+        score = plan["score"] * scorebug.BIG
+        assert max(oranges) < plan["home"] * scorebug.BIG < score < plan["away"] * scorebug.BIG < min(pinks), design
+    only_home = scorebug.size(HOME, AWAY, crests={"home": True})
+    assert plain.size[0] < only_home[0] < scorebug.size(HOME, AWAY, crests={"home": True, "away": True})[0]
+    assert scorebug.render(HOME, AWAY, 0, 0, crests={"home": None, "away": None, "league": None}).tobytes() == plain.tobytes()
+
+
+def test_a_league_crest_stands_to_the_left_of_the_whole_bug():
+    teal = (0, 200, 180)
+    for bug in ({}, {"timer": "right"}, {"design": "slim"}, {"design": "blocks", "size": 1.4}):
+        bare, league = scorebug.layout(1.0, HOME, AWAY, bug), scorebug.layout(1.0, HOME, AWAY, bug, {"league": True})
+        lead = league["width"] - bare["width"]
+        assert 60 <= lead / scorebug.style(bug)["size"] <= 72 and league["height"] == bare["height"], bug       # the crest and a gap
+        assert abs(league["clock"]["x"] - bare["clock"]["x"] - lead) <= 1, bug
+        assert all(abs(b - a - lead) <= 1 for a, b in zip(bare["clock"]["slots"], league["clock"]["slots"])), bug
+        plate = scorebug.render(HOME, AWAY, 0, 0, bug=bug, crests={"league": _crest(teal, (300, 300))})
+        assert plate.size == (league["width"], league["height"]), bug
+        mid = plate.size[1] // 2
+        teals = [x for x in range(plate.size[0]) if _near(plate.getpixel((x, mid)), teal)]
+        assert teals[0] <= 2 and abs(len(teals) - plate.size[1]) <= 3 and teals[-1] < lead, bug                 # square, as tall as the bug, at its left
+        assert plate.getpixel((lead - 4, mid))[3] == 0, bug
+    wide = scorebug.render(HOME, AWAY, 0, 0, crests={"league": _crest(teal, (400, 100))})                       # a wide crest keeps its shape
+    rows = [y for y in range(wide.size[1]) if _near(wide.getpixel((28, y)), teal)]
+    assert 12 <= len(rows) <= 17 and abs((rows[0] + rows[-1]) / 2 - 28.5) <= 1.5
 
 
 def test_a_plate_can_be_handed_over_as_a_png():

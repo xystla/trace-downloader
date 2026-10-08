@@ -46,6 +46,7 @@ STRIP_AT = 8                    # a team's colour strip starts this far in from 
 STRIPS = (3, 40)                # how narrow and how wide a strip can be
 ROUNDS = (0, 23)                # corners: square, up to the bug's ends being half circles
 NAME, NAME_SIZE, NAME_PAD = 95, 28, 14      # a name's room (at least), its type size, the space at its sides
+CREST, CREST_GAP = 30, 6        # a team crest's box beside its name, and the space between them
 DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
 WHITE, INK = (255, 255, 255), (28, 18, 38)
 USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic", "color2": ""}
@@ -101,10 +102,15 @@ def _wide(font: str, size: int, words: str) -> float:
     return _face(font, size * _FINE).getlength(words) / _FINE
 
 
-def _plan(home: dict, away: dict, bug: dict) -> dict:
-    """Where the bug's parts sit, left to right, for these names and this look."""
+def _plan(home: dict, away: dict, bug: dict, crests=None) -> dict:
+    """Where the bug's parts sit, left to right, for these names and this look.
+    `crests` says which crests there are ("home", "away", "league": anything true)."""
     font, design = bug["font"], bug["design"]
+    crests = crests or {}
     end = STRIP_AT + bug["strip"] if design == "classic" else 12       # only the classic design has strips at its ends
+    # In the blocks design each side is solid colour around its name (as much after it as
+    # before) and then fades toward the score: the bigger the strip setting, the shorter the fade.
+    fade = end + (STRIPS[1] - bug["strip"]) if design == "blocks" else 0
     gap = 0 if design == "slim" else GAP                                # the slim design keeps its timer inside the bar
     # Room at the timer's sides: what was asked for, and more when the ends are round.
     pad = 2 + bug["clock"] / 5 + max(0, bug["round"] - 10) / 3
@@ -121,18 +127,30 @@ def _plan(home: dict, away: dict, bug: dict) -> dict:
     side = 2 * digit + 8                                   # room for a score of two digits
     dash = 16
     score_wide = math.ceil(2 * side + dash + 8)
-    home_room = max(NAME, math.ceil(_wide(font, NAME_SIZE, home["code"])) + 2 * NAME_PAD)
-    away_room = max(NAME, math.ceil(_wide(font, NAME_SIZE, away["code"])) + 2 * NAME_PAD)
-    bar_wide = end + home_room + score_wide + away_room + end
+    # A team's part of the bar holds its name and, beside it on the outside, its crest if it has one.
+    home_wide, away_wide = _wide(font, NAME_SIZE, home["code"]), _wide(font, NAME_SIZE, away["code"])
+    home_group = home_wide + (CREST + CREST_GAP if crests.get("home") else 0)
+    away_group = away_wide + (CREST + CREST_GAP if crests.get("away") else 0)
+    home_room = max(NAME, math.ceil(home_group) + 2 * NAME_PAD)
+    away_room = max(NAME, math.ceil(away_group) + 2 * NAME_PAD)
+    bar_wide = end + home_room + fade + score_wide + fade + away_room + end
+    # A league crest stands before everything, as tall as the bug.
+    lead = HEIGHT + GAP if crests.get("league") else 0
     # The timer's box goes before the bar or after it; either way with a gap between.
-    clock_x, bar = (bar_wide + gap, 0) if bug["timer"] == "right" else (0, clock + gap)
-    score = bar + end + home_room
+    clock_x, bar = (lead + bar_wide + gap, lead) if bug["timer"] == "right" else (lead, lead + clock + gap)
+    score = bar + end + home_room + fade
+    home_from = bar + end + (home_room - home_group) / 2           # where the home crest-and-name starts
+    away_from = score + score_wide + fade + (away_room - away_group) / 2       # and the away name-and-crest
     return {"clock": clock, "clock_x": clock_x, "slots": [clock_x + slot for slot in slots],
-            "bar": bar, "bar_wide": bar_wide, "home": bar + end + home_room / 2,
+            "bar": bar, "bar_wide": bar_wide, "start": lead, "home": home_from + home_group - home_wide / 2,
             "score": score, "score_wide": score_wide, "home_digit": score + 4 + side / 2,
             "dash": score + score_wide / 2, "away_digit": score + score_wide - 4 - side / 2,
-            "away": score + score_wide + away_room / 2, "width": clock + gap + bar_wide,
-            "home_wide": _wide(font, NAME_SIZE, home["code"]), "away_wide": _wide(font, NAME_SIZE, away["code"])}
+            "away": away_from + away_wide / 2, "width": lead + clock + gap + bar_wide,
+            "home_wide": home_wide, "away_wide": away_wide,
+            "home_crest": home_from if crests.get("home") else None,
+            "away_crest": away_from + away_wide + CREST_GAP if crests.get("away") else None,
+            "league_crest": 0 if crests.get("league") else None,
+            "fade": fade - end if fade else 0}
 
 
 def _light(colour: tuple) -> bool:
@@ -160,20 +178,23 @@ def _middle(face, glyph: str) -> float:
     return (box[1] + box[3]) / 2
 
 
-def size(home: dict, away: dict, scale: float = 1.0, bug=None) -> tuple:
+def size(home: dict, away: dict, scale: float = 1.0, bug=None, crests=None) -> tuple:
     """The plate's width and height in the picture."""
     bug = style(bug)
     k = scale * BIG * bug["size"]
-    return round(_plan(home, away, bug)["width"] * k), round(HEIGHT * k)
+    return round(_plan(home, away, bug, crests)["width"] * k), round(HEIGHT * k)
 
 
-def render(home: dict, away: dict, home_score: int, away_score: int, scale: float = 1.0, bug=None) -> Image.Image:
-    """The plate for a score: the whole bug except the clock's digits."""
+def render(home: dict, away: dict, home_score: int, away_score: int, scale: float = 1.0, bug=None,
+           crests=None) -> Image.Image:
+    """The plate for a score: the whole bug except the clock's digits. `crests`
+    may hold a picture for "home", "away" (beside their names) and "league"
+    (to the left of everything)."""
     bug = style(bug)
     font = bug["font"]
-    final = size(home, away, scale, bug)
+    final = size(home, away, scale, bug, crests)
     k = scale * BIG * bug["size"] * _SMOOTH
-    plan = _plan(home, away, bug)
+    plan = _plan(home, away, bug, crests)
     width, score, mid = plan["width"], plan["score"], HEIGHT / 2
     first, corner, strip = _rgb(bug["color"]), bug["round"], bug["strip"]
     second = _rgb(bug["color2"]) if bug["color2"] else first
@@ -197,7 +218,7 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
 
     inner = min(17, corner * 0.7)                      # the two white boxes are alike: as tall, as round
     design, bar_end = bug["design"], plan["bar"] + plan["bar_wide"]
-    span = (0, width) if design == "slim" else (plan["bar"], bar_end)          # where the bar starts and stops
+    span = (plan["start"], width) if design == "slim" else (plan["bar"], bar_end)      # where the bar starts and stops
 
     def shade(x):
         """The bar's colour at pixel column x: one colour, or part-way from the first to the second."""
@@ -221,7 +242,7 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
     if design == "slim":
         # One bar from end to end, the timer inside it; a line of each team's colour under its name.
         fill_bar()
-        edge = plan["clock"] if bug["timer"] == "left" else plan["clock_x"]
+        edge = plan["clock_x"] + plan["clock"] if bug["timer"] == "left" else plan["clock_x"]
         box(edge - 0.75, 12, 1.5, HEIGHT - 24, 0.75, tuple(round((n + 2 * c) / 3) for n, c in zip(names, bar)))     # a faint divider
         weight = 2 + strip / 8
         for centre, wide, team in ((plan["home"], plan["home_wide"], home), (plan["away"], plan["away_wide"], away)):
@@ -235,9 +256,8 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         box(bar_end - STRIP_AT - strip, 8, strip, HEIGHT - 16, strip_corner, _rgb(away["color"]))
         box(score, 6, plan["score_wide"], HEIGHT - 12, inner, score_fill)                       # the score's box
     elif design == "blocks":
-        # Each side filled with its team's colour: solid from its end for part of the
-        # way (more with a bigger strip setting), then fading into the bar's colour.
-        solid = (strip - STRIPS[0]) / (STRIPS[1] - STRIPS[0])
+        # Each side filled with its team's colour: solid around its name, then fading
+        # into the bar's colour over the stretch before the score.
         band = Image.new("RGBA", plate.size)
         paint = ImageDraw.Draw(band)
         for x in range(round(score * k), round((score + plan["score_wide"]) * k)):
@@ -245,8 +265,8 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
         for team, outer, inner_edge in ((home, plan["bar"], score), (away, bar_end, score + plan["score_wide"])):
             colour, a, b = _rgb(team["color"]), round(outer * k), round(inner_edge * k)
             for x in range(min(a, b), max(a, b)):
-                along = abs(x - a) / max(1, abs(b - a))                                 # 0 at the bar's end, 1 at the score
-                fade = 0 if solid >= 1 else min(1, max(0, (along - solid) / (1 - solid))) ** 1.5
+                left = abs(b - x) / k                                                   # how far it is to the score
+                fade = (1 - left / plan["fade"]) ** 1.5 if left < plan["fade"] else 0
                 paint.line([(x, 0), (x, band.size[1])], fill=tuple(round(c + (d - c) * fade) for c, d in zip(colour, shade(x))))
         fill_bar(band)
         reads = lambda c: INK if _light(c) else WHITE
@@ -258,10 +278,22 @@ def render(home: dict, away: dict, home_score: int, away_score: int, scale: floa
     box(plan["dash"] - 4.5, mid - 1.6, 9, 3.2, 1, digits)              # the dash, drawn: a typeface's own sits where it likes
     text(plan["away_digit"], str(away_score), DIGIT_SIZE, digits, "0")
     text(plan["away"], away["code"], NAME_SIZE, away_ink, "H")
+    for which, x, y, room in (("home", plan["home_crest"], (HEIGHT - CREST) / 2, CREST),
+                              ("away", plan["away_crest"], (HEIGHT - CREST) / 2, CREST),
+                              ("league", plan["league_crest"], 0, HEIGHT)):
+        picture = (crests or {}).get(which)
+        if x is None or not isinstance(picture, Image.Image):
+            continue
+        # As big as fits its square, keeping its shape, in the middle of it.
+        picture = picture.convert("RGBA")
+        fit = room * k / max(picture.size)
+        shown = picture.resize((max(1, round(picture.size[0] * fit)), max(1, round(picture.size[1] * fit))), Image.LANCZOS)
+        at = (round(x * k + (room * k - shown.size[0]) / 2), round(y * k + (room * k - shown.size[1]) / 2))
+        plate.alpha_composite(shown, at)
     return plate.resize(final, Image.LANCZOS)
 
 
-def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = None, bug=None) -> dict:
+def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = None, bug=None, crests=None) -> dict:
     """Where the plate goes in the picture and where the clock's digits go on
     the plate. Slots are the centre of each glyph, measured from the plate's
     left edge; y is the vertical centre of each glyph's ink, which is what the
@@ -272,8 +304,8 @@ def layout(scale: float = 1.0, home: dict | None = None, away: dict | None = Non
     blank = {"code": ""}
     home, away = home or blank, away or blank
     k = scale * BIG * bug["size"]
-    plan = _plan(home, away, bug)
-    width, height = size(home, away, scale, bug)
+    plan = _plan(home, away, bug, crests)
+    width, height = size(home, away, scale, bug, crests)
     type_size, y = round(DIGIT_SIZE * k), round(HEIGHT / 2 * k)
     face = _face(bug["font"], type_size)
     return {"x": round(ORIGIN[0] * scale), "y": round(ORIGIN[1] * scale), "width": width, "height": height,
