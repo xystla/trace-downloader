@@ -537,6 +537,8 @@ function leaveFull() {
 
 // The game whose page is showing and has something to play, else null.
 function activePlayer() {
+  // The Editor has a video of its own; the keys that make sense there work on it.
+  if (!el("editor").hidden && ed.id) return { editor: true, video: el("edVideo"), frame: el("edFrame") };
   if (layout !== "single" || el("games-view").hidden) return null;
   const card = document.querySelector("#games .game");
   if (!card || !card._player) return null;
@@ -545,6 +547,7 @@ function activePlayer() {
 }
 
 const HELD_KEYS = ["j", "l", ",", "."];
+const EDITOR_KEYS = [" ", "k", "j", "l", ",", ".", "<", ">", "m"];
 const playPause = ({ video }) => (video.paused ? video.play().catch(() => {}) : video.pause());
 // What each key does on a game's page. Later sections add theirs.
 const PLAYER_KEYS = {
@@ -574,6 +577,7 @@ document.addEventListener("keydown", (e) => {
   if (key === " " && tag === "BUTTON") return;      // space presses the focused button, as everywhere
   const action = PLAYER_KEYS[key];
   if (!action) return;
+  if (active.editor && !EDITOR_KEYS.includes(key)) return;      // no bookmarks, clips or full screen in the Editor
   // Holding a key down repeats skipping and stepping, not a bookmark or full screen.
   if (e.repeat && !HELD_KEYS.includes(key)) { e.preventDefault(); return; }
   e.preventDefault();
@@ -1425,6 +1429,7 @@ function setSaved(g, id) {
   g.querySelector(".action").replaceChildren(
     done("play", "Watch Game", "The game is saved. Click to play it.", () => run((gameId) => api().play_game(gameId))),
     done("folder", "Open Folder", "Show the game video in its folder.", () => run((gameId) => api().reveal_game(gameId))),
+    labelButton("cut", "Edit game", "Cut the breaks and add a score bug in the Editor.", () => { showView("editor"); openEditor(id); }),
     highlightsButton(id), recapsButton(g, id));
   if (highlightsRunning.has(id)) { setNote(id, "Cutting team highlights…", true); setMini(id, null); }
   attachPlayer(g, id);
@@ -2188,7 +2193,7 @@ el("connectCancel").onclick = async () => {
 el("openFolder").onclick = () => api().open_folder();
 
 // ---- sidebar navigation ----
-const VIEWS = { games: "games-view", analytics: "analytics", downloads: "downloads", storage: "storage", settings: "settings" };
+const VIEWS = { games: "games-view", analytics: "analytics", downloads: "downloads", storage: "storage", editor: "editor", settings: "settings" };
 let analyticsLoaded = false;
 function showView(name) {
   Object.entries(VIEWS).forEach(([key, id]) => { el(id).hidden = key !== name; });
@@ -2198,6 +2203,8 @@ function showView(name) {
   if (name === "analytics" && !analyticsLoaded) loadAnalytics();
   if (name === "downloads") showFreeSpace();
   if (name === "storage") loadStorage();
+  if (name === "editor") edListGames();
+  else if (!el("edVideo").paused) el("edVideo").pause();      // an edit left behind doesn't keep playing
 }
 document.querySelectorAll("#nav button").forEach((b) => {
   b.onclick = () => {
@@ -2812,6 +2819,108 @@ function hideSplash() {
   setTimeout(() => el("splash").classList.add("is-done"), Math.max(0, 1100 - (Date.now() - splashSince)));
 }
 setTimeout(hideSplash, 12000);
+// ---- the editor: mark a game, see the score bug on it, export it ----
+// One game is open at a time. `segments` (the stretches of play) and `problems`
+// come from the app each time the edit is saved, so the rules live in one place.
+const ed = { id: null, project: null, segments: [], problems: [], sources: [], duration: 0,
+  layout: null, score: null, current: 0 };
+const edOnTime = [];        // run whenever the editor's video moves on
+let edControls = false;
+
+// Saved games in the picker, newest first as listed.
+function edListGames() {
+  const pick = el("edGame");
+  const saved = allGames.filter((g) => gameState.get(g.id) === "saved");
+  pick.replaceChildren(new Option(saved.length ? "Choose a game…" : "No saved games yet", ""),
+    ...saved.map((g) => new Option(`vs ${g.opponent || g.title} · ${g.date_label || g.date}`, g.id)));
+  pick.value = ed.id && saved.some((g) => g.id === ed.id) ? ed.id : "";
+}
+el("edGame").onchange = (e) => { if (e.target.value) openEditor(e.target.value); };
+
+async function openEditor(id) {
+  let res;
+  try { res = await api().edit_open(id); } catch (e) { res = { ok: false, error: String(e) }; }
+  el("edError").hidden = !!(res && res.ok);
+  el("edError").textContent = res && res.ok ? "" : (res && res.error) || "The game couldn't be opened.";
+  el("edBody").hidden = !(res && res.ok);
+  el("edHint").hidden = !!(res && res.ok);
+  if (!(res && res.ok)) { ed.id = null; edListGames(); return; }
+  Object.assign(ed, { id, project: res.project, segments: res.segments, problems: res.problems,
+    sources: res.sources, duration: res.duration, layout: res.layout, score: res.score, current: -1 });
+  edListGames();
+  const video = el("edVideo");
+  if (!edControls) {              // the app's usual play / scrub / speed bar, made once
+    edControls = true;
+    el("edFrame").append(videoControls(el("edFrame"), video));
+    video.addEventListener("timeupdate", () => edOnTime.forEach((fn) => fn()));
+    video.addEventListener("ended", () => {       // the end of the first half's file: carry on into the second
+      if (ed.current < ed.sources.length - 1) edSeek(ed.sources[ed.current + 1].start, () => video.play().catch(() => {}));
+    });
+  }
+  edSeek(0);
+  edRender();
+}
+
+// Where the editor's video is on the game's own clock (both halves joined).
+function edClock() {
+  const src = ed.sources[ed.current];
+  return src ? src.start + el("edVideo").currentTime : 0;
+}
+
+// Go to a moment on the game clock, switching file when it is in the other half.
+function edSeek(t, then) {
+  const video = el("edVideo");
+  t = Math.max(0, Math.min(ed.duration, t));
+  let index = ed.sources.findIndex((s) => t < s.start + s.length);
+  if (index < 0) index = ed.sources.length - 1;
+  const inFile = Math.max(0, t - ed.sources[index].start);
+  const arrive = () => { video.currentTime = inFile; if (then) then(); edOnTime.forEach((fn) => fn()); };
+  if (index !== ed.current) {
+    ed.current = index;
+    video.src = ed.sources[index].url;
+    video.addEventListener("loadedmetadata", arrive, { once: true });
+  } else if (video.readyState >= 1) {
+    arrive();
+  } else {
+    video.addEventListener("loadedmetadata", arrive, { once: true });
+  }
+}
+
+// Keep the edit; the app answers with it tidied and with how its marks read.
+async function edSave() {
+  let res;
+  try { res = await api().edit_save(ed.id, ed.project); } catch (e) { res = { ok: false, error: String(e) }; }
+  if (!(res && res.ok)) {
+    el("edError").hidden = false;
+    el("edError").textContent = (res && res.error) || "The edit couldn't be saved.";
+    return;
+  }
+  el("edError").hidden = true;
+  Object.assign(ed, { project: res.project, segments: res.segments, problems: res.problems });
+  edRender();
+}
+
+// Redraw everything that shows the edit. The parts are added by the sections below.
+const edParts = [];
+function edRender() {
+  for (const side of ["home", "away"]) {
+    const row = document.querySelector(`.ed-team[data-side="${side}"]`);
+    const team = ed.project[side];
+    row.querySelector("[type=color]").value = team.color;
+    row.querySelector(".ed-name").value = team.name;
+    row.querySelector(".ed-code").value = team.code;
+  }
+  edParts.forEach((draw) => draw());
+}
+
+document.querySelectorAll(".ed-team").forEach((row) => {
+  const side = row.dataset.side;
+  const keep = (field, input) => { input.onchange = () => { ed.project[side][field] = input.value; edSave(); }; };
+  keep("color", row.querySelector("[type=color]"));
+  keep("name", row.querySelector(".ed-name"));
+  keep("code", row.querySelector(".ed-code"));
+});
+
 const afterFirstLoad = () => {
   hideSplash();
   setTimeout(showWhatsNewOnce, 1300);          // once the splash has cleared

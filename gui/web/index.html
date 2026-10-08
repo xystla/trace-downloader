@@ -62,6 +62,7 @@
       <button data-view="analytics"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg>Analytics</button>
       <button data-view="downloads"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg>Downloads<span id="dlCount" class="count" hidden></span></button>
       <button data-view="storage"><svg class="ic" aria-hidden="true"><use href="#i-disk"/></svg>Storage</button>
+      <button data-view="editor"><svg class="ic" aria-hidden="true"><use href="#i-cut"/></svg>Editor</button>
       <button data-view="settings"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg>Settings</button>
     </nav>
     <div class="side-foot">
@@ -221,6 +222,49 @@
             <tbody></tbody>
             <tfoot></tfoot>
           </table>
+        </div>
+      </div>
+    </section>
+    <section id="editor" class="view" hidden>
+      <div class="row">
+        <h2>Editor</h2>
+        <span class="spacer"></span>
+        <select id="edGame" aria-label="Game to edit"></select>
+      </div>
+      <p id="edHint" class="caption">Choose a saved game. Mark where it starts, pauses, resumes and ends and where each goal was scored, then export it with the breaks cut out and a score bug on top. The original video is never changed.</p>
+      <p id="edError" class="caption warn" hidden></p>
+      <div id="edBody" class="ed-body" hidden>
+        <div class="ed-stage">
+          <div id="edFrame" class="player-frame is-paused" tabindex="0">
+            <video id="edVideo" preload="metadata" playsinline></video>
+            <div id="edBug" class="ed-bug" hidden><img alt=""><span></span><span></span><span></span><span></span><span></span></div>
+          </div>
+          <div id="edButtons" class="ed-buttons"></div>
+          <div id="edTimeline" class="timeline"></div>
+        </div>
+        <div class="ed-side">
+          <div class="card ed-card">
+            <h3>Teams</h3>
+            <div class="ed-team" data-side="home">
+              <input type="color" aria-label="Your team's colour">
+              <input type="text" class="ed-name" maxlength="40" placeholder="Your team" aria-label="Your team's name">
+              <input type="text" class="ed-code" maxlength="4" placeholder="ABC" aria-label="Your team's code, up to four letters">
+            </div>
+            <div class="ed-team" data-side="away">
+              <input type="color" aria-label="Opponent's colour">
+              <input type="text" class="ed-name" maxlength="40" placeholder="Opponent" aria-label="Opponent's name">
+              <input type="text" class="ed-code" maxlength="4" placeholder="ABC" aria-label="Opponent's code, up to four letters">
+            </div>
+          </div>
+          <div class="card ed-card">
+            <h3>Marks</h3>
+            <div id="edMarks" class="ed-marks"></div>
+          </div>
+          <div class="card ed-card">
+            <h3>Export</h3>
+            <div id="edStatus" class="ed-status"></div>
+            <div id="edExport" class="ed-export"></div>
+          </div>
         </div>
       </div>
     </section>
