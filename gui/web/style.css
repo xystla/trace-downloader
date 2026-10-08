@@ -600,3 +600,6 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .tl-mark.ed.goal { width:12px; height:12px; border-radius:50%; background:var(--accent); border:2px solid var(--raised); }
 .tl-mark.ed.edge { background:var(--accent-text); width:5px; height:34px; }
 .tl-mark.ref { top:82%; width:7px; height:7px; opacity:.75; }
+.ed-bug { position:absolute; pointer-events:none; }
+.ed-bug img { display:block; width:100%; height:100%; }
+.ed-bug span { position:absolute; transform:translate(-50%, -50%); font-family:"TraceDown Bug", sans-serif; line-height:1; white-space:nowrap; }

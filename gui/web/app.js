@@ -3048,6 +3048,67 @@ edParts.push(edDrawButtons, edDrawMarks, edDrawStatus, edDrawTimeline,
   () => { if (edReference.id !== ed.id) edLoadReference(); });
 edOnTime.push(edMoveHead);
 
+// ---- editor: the score bug over the video, as it will be exported ----
+// The plate (the bug without its clock digits) is drawn by the app, the same
+// drawing the export uses; the digits are written here in the same typeface.
+const edPlates = new Map();      // "home-away" -> picture address, for the teams as they are now
+let edPlateTeams = "";
+
+function edPlate(home, away) {
+  const teams = JSON.stringify([ed.project.home, ed.project.away]);
+  if (teams !== edPlateTeams) { edPlateTeams = teams; edPlates.clear(); }
+  const key = `${home}-${away}`;
+  if (!edPlates.has(key)) {
+    edPlates.set(key, api().bug_plate(ed.project.home, ed.project.away, home, away)
+      .then((res) => (res && res.ok ? res.url : ""), () => ""));
+  }
+  return edPlates.get(key);
+}
+
+function edDrawBug() {
+  const bug = el("edBug");
+  const out = ed.problems.length || !ed.layout ? null : edOutTime(edClock());
+  bug.hidden = out == null;
+  if (out == null) return;
+  // Everything is measured for a picture 1920 wide and scaled to the frame as shown.
+  const k = el("edFrame").clientWidth / 1920;
+  const lay = ed.layout;
+  Object.assign(bug.style, { left: lay.x * k + "px", top: lay.y * k + "px",
+    width: lay.width * k + "px", height: lay.height * k + "px" });
+  const [home, away] = edScoreAt(edClock());
+  const img = bug.querySelector("img");
+  const want = `${home}-${away}`;
+  const teams = JSON.stringify([ed.project.home, ed.project.away]);      // a new code or colour is a new plate
+  if (img.dataset.score !== want || img.dataset.teams !== teams) {
+    img.dataset.score = want;
+    img.dataset.teams = teams;
+    edPlate(home, away).then((url) => { if (img.dataset.score === want && img.dataset.teams === teams && url) img.src = url; });
+  }
+  const secs = Math.floor(out);
+  const text = [Math.floor(secs / 600), Math.floor(secs / 60) % 10, ":", Math.floor((secs % 60) / 10), secs % 10];
+  bug.querySelectorAll("span").forEach((span, i) => {
+    span.textContent = text[i];
+    Object.assign(span.style, { left: lay.clock.slots[i] * k + "px", top: lay.clock.y * k + "px",
+      fontSize: lay.clock.size * k + "px", color: lay.clock.color });
+  });
+}
+
+// "Preview the edit": play as the export will, skipping what is cut.
+function edSkipCuts() {
+  const video = el("edVideo");
+  if (!el("edPreview").checked || video.paused || ed.problems.length || !ed.segments.length) return;
+  const t = edClock();
+  const last = ed.segments[ed.segments.length - 1];
+  if (t >= last[1]) { video.pause(); return; }
+  if (edOutTime(t) != null) return;
+  const next = ed.segments.find(([a]) => a > t);
+  if (next) edSeek(next[0], () => video.play().catch(() => {}));
+}
+
+edParts.push(edDrawBug);
+edOnTime.push(edDrawBug, edSkipCuts);
+window.addEventListener("resize", () => { if (ed.id) edDrawBug(); });
+
 const afterFirstLoad = () => {
   hideSplash();
   setTimeout(showWhatsNewOnce, 1300);          // once the splash has cleared
