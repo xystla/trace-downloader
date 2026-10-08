@@ -4,6 +4,32 @@ from PIL import Image, ImageChops, ImageFont
 
 from trace_grabber import scorebug
 
+import pytest
+
+SHIPPED = dict(scorebug.USUAL)
+# These tests measure a plain look (timer on the left, rounded, the first typeface)
+# so their numbers stay put when the look the app starts with changes.
+PLAIN = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left",
+         "animate": True, "design": "classic", "color2": ""}
+
+
+@pytest.fixture(autouse=True)
+def plain_look(monkeypatch):
+    monkeypatch.setattr(scorebug, "USUAL", dict(PLAIN))
+
+
+def test_the_look_the_app_starts_with():
+    assert SHIPPED == {"size": 1.15, "font": "bebas", "color": "#2d0a3c", "clock": 55, "strip": 7, "round": 0, "timer": "right",
+                       "animate": True, "design": "classic", "color2": ""}
+    assert set(SHIPPED) == set(PLAIN) and SHIPPED["font"] in scorebug.FONTS and SHIPPED["design"] in scorebug.DESIGNS
+
+
+def test_anything_missing_from_a_look_falls_back_to_the_usual(monkeypatch):
+    monkeypatch.setattr(scorebug, "USUAL", dict(SHIPPED))
+    assert scorebug.style(None) == SHIPPED == scorebug.style({"font": "comic", "timer": "top", "size": "big"})
+    assert scorebug.style({"timer": "left", "round": 12})["timer"] == "left" and scorebug.style({"round": 12})["round"] == 12
+
+
 HOME = {"code": "TIG", "color": "#16a05a"}
 AWAY = {"code": "BLU", "color": "#1e5ac8"}
 

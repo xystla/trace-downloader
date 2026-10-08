@@ -585,6 +585,9 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-look input[type=color] { width:44px; height:30px; margin:0; }
 .ed-look button { margin:0; padding:4px 10px; font-size:12px; }
 .ed-legend { flex-wrap:wrap; margin-top:-4px; }
+.ed-crest { margin:0; padding:6px 9px; font-size:12px; white-space:nowrap; }
+.ed-crest.on { color:var(--accent-text, var(--accent)); border-color:var(--accent); }
+.ed-crest-note { font-size:11.5px; color:var(--muted); }
 .ed-fade input[type=checkbox] { width:18px; height:18px; margin:0 4px 0 0; accent-color:var(--accent); }
 .ed-fade input[type=color]:disabled { opacity:.35; }
 .ed-card h3 { display:flex; align-items:center; justify-content:space-between; }
@@ -601,6 +604,12 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-stage { display:flex; flex-direction:column; gap:12px; min-width:0; }
 /* Beside a long column of settings the video stays in view as the page scrolls. */
 @media (min-width:1181px) { .ed-stage { position:sticky; top:12px; } }
+/* Not while the video is full screen: inside a stuck column the app's own window
+   keeps the "full screen" video within the page, under the sidebar. */
+.ed-stage:has(.player-frame.is-full), .ed-stage.has-full { position:static; }
+/* The picker is up here when no game is open or the window is narrow: keep it clear of what is below. */
+#edHead { margin-bottom:12px; }
+.ed-side > #edGame { margin-bottom:0; }
 .ed-stage .ed-look { grid-template-columns:86px minmax(0, 1fr) 44px; }
 #edFrame video { display:block; width:100%; height:auto; aspect-ratio:16 / 9; background:#000; object-fit:contain; }
 .ed-buttons { display:flex; flex-wrap:nowrap; gap:5px; }
@@ -613,7 +622,7 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-side { display:flex; flex-direction:column; gap:12px; }
 .ed-card { padding:12px 14px 14px; }
 .ed-card h3 { margin:0 0 10px; }
-.ed-team { display:grid; grid-template-columns:36px minmax(0, 1fr) minmax(0, 1fr); gap:8px; align-items:center; margin-top:8px; }
+.ed-team { display:grid; grid-template-columns:36px minmax(0, 1fr) minmax(0, 1fr) auto; gap:8px; align-items:center; margin-top:8px; }
 .ed-team input { margin:0; width:100%; }
 .ed-team input[type=color], .ed-look input[type=color] { -webkit-appearance:none; appearance:none; width:36px; height:34px; padding:0;
   border:0; border-radius:8px; background:none; overflow:hidden; cursor:pointer; }

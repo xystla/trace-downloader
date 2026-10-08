@@ -257,16 +257,19 @@
               <input type="color" aria-label="Your team's colour">
               <input type="text" class="ed-name" maxlength="40" placeholder="Your team" aria-label="Your team's name">
               <input type="text" class="ed-code" maxlength="40" placeholder="On the score bug" aria-label="Your team's name as shown on the score bug" title="Shown on the score bug. A longer name makes the bug wider.">
+              <button type="button" class="ed-crest" data-crest="home"></button>
             </div>
             <div class="ed-team" data-side="away">
               <input type="color" aria-label="Opponent's colour">
               <input type="text" class="ed-name" maxlength="40" placeholder="Opponent" aria-label="Opponent's name">
               <input type="text" class="ed-code" maxlength="40" placeholder="On the score bug" aria-label="Opponent's name as shown on the score bug" title="Shown on the score bug. A longer name makes the bug wider.">
+              <button type="button" class="ed-crest" data-crest="away"></button>
             </div>
           </div>
           <div class="card ed-card">
             <h3>Score bug</h3>
             <label class="ed-look"><span>Design</span><select id="edDesign" aria-label="The score bug's design"></select></label>
+            <div class="ed-look"><span>League crest</span><span class="ed-crest-note">Stands to the left of the bug.</span><button type="button" class="ed-crest" data-crest="league"></button></div>
             <label class="ed-look"><span>Font</span><select id="edFont" aria-label="The score bug's font"></select></label>
             <label class="ed-look"><span>Size</span><input type="range" id="edSize" min="50" max="200" step="5" value="100" aria-label="The score bug's size"><output id="edSizeNow">100%</output></label>
             <label class="ed-look"><span>Colour</span><input type="color" id="edBarColor" aria-label="The score bug's background colour"><button type="button" id="edBarReset">Reset</button></label>

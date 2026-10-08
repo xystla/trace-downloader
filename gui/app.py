@@ -400,7 +400,7 @@ class Api:
     @staticmethod
     def _bug_layout(project):
         """Where the page puts the bug and its clock, for these teams and this look."""
-        return scorebug.layout(1.0, project["home"], project["away"], project.get("bug"))
+        return scorebug.layout(1.0, project["home"], project["away"], project.get("bug"), project.get("crests"))
 
     def edit_save(self, game_id, project):
         """Keep the edit; answers with it as kept and with what is wrong with its marks."""
@@ -411,11 +411,41 @@ class Api:
         return {"ok": True, "project": kept, "segments": [list(s) for s in segments], "problems": problems,
                 "layout": self._bug_layout(kept)}
 
-    def bug_plate(self, home, away, home_score, away_score, bug=None):
+    def pick_crest(self, game_id, which):
+        """Ask for a picture and keep it as one of the game's crests ("home", "away" or "league")."""
+        if which not in edit.CRESTS:
+            return {"ok": False, "error": "unknown crest"}
+        if not self._game_cache.get(game_id) or not self._window:
+            return {"ok": False}
+        kind = getattr(getattr(webview, "FileDialog", None), "OPEN", None)
+        if kind is None:
+            kind = webview.OPEN_DIALOG
+        try:
+            chosen = self._window.create_file_dialog(
+                kind, allow_multiple=False, file_types=("Pictures (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp)",))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        if not chosen:
+            return {"ok": False}  # cancelled
+        source = chosen if isinstance(chosen, str) else chosen[0]
+        _, error = self._for_game(game_id, lambda g: self._w().edit_crest(g.id, g.date, g.opponent, which, source))
+        return {"ok": False, "error": error} if error else {"ok": True}
+
+    def clear_crest(self, game_id, which):
+        """Take one of the game's crests off."""
+        if which not in edit.CRESTS:
+            return {"ok": False, "error": "unknown crest"}
+        _, error = self._for_game(game_id, lambda g: self._w().edit_crest(g.id, g.date, g.opponent, which, None))
+        return {"ok": False, "error": error} if error else {"ok": True}
+
+    def bug_plate(self, home, away, home_score, away_score, bug=None, game_id=None, crests=None):
         """The score bug (without its clock digits) for a score, for the page's preview."""
-        teams = edit.clean({"home": home, "away": away, "bug": bug})
+        teams = edit.clean({"home": home, "away": away, "bug": bug, "crests": crests})
+        pictures = None
+        if game_id is not None and any(teams["crests"].values()):
+            pictures, _ = self._for_game(game_id, lambda g: self._w().edit_crest_images(g.id, g.date, g.opponent, teams["crests"]))
         count = lambda n: n if isinstance(n, int) and not isinstance(n, bool) and 0 <= n < 100 else 0
-        plate = scorebug.render(teams["home"], teams["away"], count(home_score), count(away_score), bug=teams["bug"])
+        plate = scorebug.render(teams["home"], teams["away"], count(home_score), count(away_score), bug=teams["bug"], crests=pictures)
         return {"ok": True, "url": "data:image/png;base64," + base64.b64encode(scorebug.png_bytes(plate)).decode("ascii")}
 
     def export_start(self, game_id, quality="best"):

@@ -1,6 +1,6 @@
 import json
 
-from trace_grabber import edit
+from trace_grabber import edit, scorebug
 
 
 def _marks(*pairs):
@@ -128,10 +128,11 @@ def test_a_file_that_is_not_a_picture_is_refused_plainly(tmp_path):
 
 
 def test_the_bug_settings_travel_with_the_edit():
-    usual = {"size": 1.0, "font": "barlow", "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic", "color2": ""}
+    usual = dict(scorebug.USUAL)
     assert edit.clean({})["bug"] == usual
     assert edit.clean({"bug": {"size": 1.5, "font": "anton"}})["bug"] == {**usual, "size": 1.5, "font": "anton"}
     assert edit.clean({"bug": {"size": 40, "font": "wingdings"}})["bug"] == {**usual, "size": 2.0}
+    assert usual["font"] == "bebas" and usual["timer"] == "right"                # the look a first edit starts with
     look = {"size": 1.3, "font": "bebas", "color": "#0a2a5c", "clock": 20, "strip": 18, "round": 0, "timer": "right", "animate": False, "design": "slim", "color2": "#ff5500"}
     assert edit.default_project("T", "R", None, look)["bug"] == look
 

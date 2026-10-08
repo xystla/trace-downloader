@@ -232,8 +232,8 @@ def test_an_export_cuts_the_breaks_and_changes_the_plate_at_each_goal(monkeypatc
 def test_the_bug_is_scaled_for_a_smaller_picture(monkeypatch, tmp_path):
     ran = _fake_export(monkeypatch, height=720)
     export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4")
-    assert ran["plate_size"] == scorebug.size(PROJECT["home"], PROJECT["away"], 720 / 1080) and ran["plate_size"][1] == 38
-    assert "overlay=x='40-" in ran["graph"] and ":y=32:enable=" in ran["graph"] and "fontsize=24" in ran["graph"]
+    assert ran["plate_size"] == scorebug.size(PROJECT["home"], PROJECT["away"], 720 / 1080) and ran["plate_size"][1] == 44
+    assert "overlay=x='40-" in ran["graph"] and ":y=32:enable=" in ran["graph"] and "fontsize=28" in ran["graph"]
 
 
 def test_the_export_uses_the_edit_own_size_and_typeface(monkeypatch, tmp_path):

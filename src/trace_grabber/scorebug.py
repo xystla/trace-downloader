@@ -49,7 +49,9 @@ NAME, NAME_SIZE, NAME_PAD = 95, 28, 14      # a name's room (at least), its type
 CREST, CREST_GAP = 30, 6        # a team crest's box beside its name, and the space between them
 DIGIT_SIZE = 29                 # the score's digits and the clock's, alike
 WHITE, INK = (255, 255, 255), (28, 18, 38)
-USUAL = {"size": 1.0, "font": DEFAULT_FONT, "color": "#2d0a3c", "clock": 50, "strip": 7, "round": 10, "timer": "left", "animate": True, "design": "classic", "color2": ""}
+# How the bug looks until the person changes it.
+USUAL = {"size": 1.15, "font": "bebas", "color": "#2d0a3c", "clock": 55, "strip": 7, "round": 0, "timer": "right",
+         "animate": True, "design": "classic", "color2": ""}
 CLOCK_COLOR = "#1c1226"
 SLIDE = (0.6, 0.5)              # seconds the bug takes to slide in as the game starts, and out as it ends
 _SMOOTH = 3                     # drawn this many times bigger, then shrunk, for smooth edges
@@ -67,7 +69,7 @@ def style(bug) -> dict:
     bug = bug if isinstance(bug, dict) else {}
     size = bug.get("size")
     if isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size):
-        size = 1.0
+        size = USUAL["size"]
     font = bug.get("font")
     color = bug.get("color")
 
@@ -78,11 +80,11 @@ def style(bug) -> dict:
         return int(min(high, max(low, round(value))))
 
     return {"size": round(min(SIZES[1], max(SIZES[0], float(size))), 2),
-            "font": font if isinstance(font, str) and font in FONTS else DEFAULT_FONT,
+            "font": font if isinstance(font, str) and font in FONTS else USUAL["font"],
             "color": color.lower() if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color) else USUAL["color"],
             "clock": whole("clock", 0, 100),            # how roomy the timer's box is: 0 tight, 100 wide
             "strip": whole("strip", *STRIPS), "round": whole("round", *ROUNDS),
-            "timer": "right" if bug.get("timer") == "right" else "left",       # which side of the bar the timer is on
+            "timer": bug.get("timer") if bug.get("timer") in ("left", "right") else USUAL["timer"],     # which side of the bar the timer is on
             "animate": bug.get("animate") is not False,
             "design": bug.get("design") if isinstance(bug.get("design"), str) and bug.get("design") in DESIGNS else "classic",
             # A second colour makes the bar fade from the first (left) to it (right); "" for one plain colour.

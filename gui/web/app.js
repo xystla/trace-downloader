@@ -525,6 +525,10 @@ function setWindowFull(on) {
   try { api().toggle_fullscreen(); } catch (e) { /* the video still fills the window */ }
 }
 function toggleFull(frame) {
+  // The Editor's video column is stuck in place while the page scrolls; that is
+  // undone while its video fills the window (see .ed-stage.has-full).
+  const stage = frame.closest(".ed-stage");
+  if (stage) stage.classList.toggle("has-full", !frame.classList.contains("is-full"));
   const on = !frame.classList.contains("is-full");
   document.querySelectorAll(".player-frame.is-full").forEach((f) => f.classList.remove("is-full"));
   frame.classList.toggle("is-full", on);
@@ -533,6 +537,7 @@ function toggleFull(frame) {
 }
 function leaveFull() {
   document.querySelectorAll(".player-frame.is-full").forEach((f) => f.classList.remove("is-full"));
+  document.querySelectorAll(".ed-stage.has-full").forEach((stage) => stage.classList.remove("has-full"));
   setWindowFull(false);
 }
 
@@ -2936,6 +2941,14 @@ function edRender() {
   if (document.activeElement !== el("edSize")) el("edSize").value = Math.round(ed.project.bug.size * 100);
   el("edSizeNow").textContent = Math.round(ed.project.bug.size * 100) + "%";
   el("edBarColor").value = ed.project.bug.color;
+  document.querySelectorAll(".ed-crest").forEach((b) => {
+    const on = ed.project.crests[b.dataset.crest];
+    b.classList.toggle("on", on);
+    b.textContent = on ? "✕ Crest" : "+ Crest";
+    b.title = on ? "Take this crest off the score bug." : b.dataset.crest === "league"
+      ? "Choose a picture of the league's crest. It stands to the left of the score bug."
+      : "Choose a picture of this team's crest. It goes beside the team's name on the score bug.";
+  });
   el("edBarFade").checked = !!ed.project.bug.color2;
   if (ed.project.bug.color2) el("edBarColor2").value = ed.project.bug.color2;      // when off, the swatch keeps the last choice
   for (const [id, field] of ED_GRADE) {
@@ -2948,6 +2961,27 @@ function edRender() {
   for (const [id, field] of ED_SLIDERS) if (document.activeElement !== el(id)) el(id).value = ed.project.bug[field];
   edParts.forEach((draw) => draw());
 }
+
+// Crests: a picture for each team (beside its name) and for the league (left of the bug).
+// The app keeps a copy with the game; yours and the league's come back for the next game.
+let edCrestRev = 0;              // goes up whenever a crest's picture changes, so the plates are drawn again
+document.querySelectorAll(".ed-crest").forEach((b) => {
+  b.onclick = async (e) => {
+    e.preventDefault();
+    const which = b.dataset.crest, on = ed.project.crests[which];
+    b.disabled = true;
+    let res;
+    try { res = await (on ? api().clear_crest(ed.id, which) : api().pick_crest(ed.id, which)); } catch (err) { res = { ok: false, error: String(err) }; }
+    b.disabled = false;
+    if (!(res && res.ok)) {
+      if (res && res.error) { el("edError").hidden = false; el("edError").textContent = res.error; }
+      return;                    // cancelled, or said why
+    }
+    ed.project.crests[which] = !on;
+    edCrestRev += 1;
+    edSave();
+  };
+});
 
 // The score bug's look: the typefaces the app ships, and how far the size goes.
 const edFaces = new Set();
@@ -3203,11 +3237,11 @@ const edPlates = new Map();      // "home-away" -> picture address, for the team
 let edPlateTeams = "";
 
 function edPlate(home, away) {
-  const teams = JSON.stringify([ed.project.home, ed.project.away, ed.project.bug]);
+  const teams = JSON.stringify([ed.id, ed.project.home, ed.project.away, ed.project.bug, ed.project.crests, edCrestRev]);
   if (teams !== edPlateTeams) { edPlateTeams = teams; edPlates.clear(); }
   const key = `${home}-${away}`;
   if (!edPlates.has(key)) {
-    edPlates.set(key, api().bug_plate(ed.project.home, ed.project.away, home, away, ed.project.bug)
+    edPlates.set(key, api().bug_plate(ed.project.home, ed.project.away, home, away, ed.project.bug, ed.id, ed.project.crests)
       .then((res) => (res && res.ok ? res.url : ""), () => ""));
   }
   return edPlates.get(key);
@@ -3244,7 +3278,8 @@ function edDrawBug() {
   const [home, away] = edScoreAt(edClock());
   const img = bug.querySelector("img");
   const want = `${home}-${away}`;
-  const teams = JSON.stringify([ed.project.home, ed.project.away, ed.project.bug]);      // a new name, colour or look is a new plate
+  // A new name, colour, look or crest is a new plate.
+  const teams = JSON.stringify([ed.id, ed.project.home, ed.project.away, ed.project.bug, ed.project.crests, edCrestRev]);
   if (img.dataset.score !== want || img.dataset.teams !== teams) {
     img.dataset.score = want;
     img.dataset.teams = teams;

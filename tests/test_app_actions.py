@@ -1264,3 +1264,41 @@ def test_quitting_the_app_ends_an_export_in_progress(editor):
     editor._quit_soon = lambda: None
     editor.quit_app()
     assert ended == ["terminated"]
+
+
+def test_choosing_a_crest_asks_for_a_picture_and_hands_it_to_the_worker(editor):
+    given = []
+    editor._worker.edit_crest = lambda game_id, date, opponent, which, source: given.append((game_id, which, source))
+    asked = _picker(editor, ("/Users/me/Pictures/badge.png",))
+    assert editor.pick_crest("t-1", "home") == {"ok": True}
+    assert given == [("t-1", "home", "/Users/me/Pictures/badge.png")] and asked[0]["allow_multiple"] is False
+    assert "png" in asked[0]["file_types"][0].lower()
+    _picker(editor, None)
+    assert editor.pick_crest("t-1", "league") == {"ok": False} and len(given) == 1                 # cancelled
+    assert editor.pick_crest("t-1", "mascot") == {"ok": False, "error": "unknown crest"}
+    assert editor.clear_crest("t-1", "home") == {"ok": True} and given[-1] == ("t-1", "home", None)
+
+
+def test_a_picture_that_cannot_be_used_is_reported(editor):
+    def refuse(*args):
+        raise RuntimeError("That file isn't a picture TraceDown can use. Try a PNG or JPEG.")
+    editor._worker.edit_crest = refuse
+    _picker(editor, ("/Users/me/notes.txt",))
+    assert editor.pick_crest("t-1", "away") == {"ok": False, "error": "That file isn't a picture TraceDown can use. Try a PNG or JPEG."}
+
+
+def test_plates_and_layouts_include_the_crests_the_edit_shows(editor):
+    from PIL import Image
+    asked = []
+    def pictures(game_id, date, opponent, shown):
+        asked.append((game_id, shown))
+        return {"home": Image.new("RGBA", (40, 40), (255, 120, 0, 255))} if shown.get("home") else {}
+    editor._worker.edit_crest_images = pictures
+    teams = ({"code": "TIG", "color": "#16a05a"}, {"code": "ROV", "color": "#1e5ac8"})
+    bare = editor.bug_plate(*teams, 0, 0, None, "t-1", {"home": False})
+    crested = editor.bug_plate(*teams, 0, 0, None, "t-1", {"home": True, "away": True})
+    assert crested["ok"] is True and crested["url"] != bare["url"] and asked[-1] == ("t-1", {"home": True, "away": True, "league": False})
+    assert editor.bug_plate(*teams, 0, 0)["url"] == bare["url"]                                       # with no game, no crests
+    with_crest = {**editor.project, "crests": {"home": True, "away": False, "league": True}}
+    saved = editor.edit_save("t-1", with_crest)
+    assert saved["layout"] == scorebug.layout(1.0, with_crest["home"], with_crest["away"], None, with_crest["crests"])
