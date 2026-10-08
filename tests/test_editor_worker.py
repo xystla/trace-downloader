@@ -56,6 +56,13 @@ def _picture(path, colour=(200, 30, 30)):
     return str(path)
 
 
+def test_saved_looks_are_kept_with_the_apps_own_data(ed):
+    assert ed.edit_looks() == []
+    assert [look["name"] for look in ed.edit_look_save("Night games", {"font": "anton"})] == ["Night games"]
+    assert (ed.data / "edit_looks.json").exists() and ed.edit_looks()[0]["bug"]["font"] == "anton"
+    assert ed.edit_look_delete("Night games") == []
+
+
 def test_a_crest_is_added_shown_and_removed(ed, tmp_path):
     _video(ed, "2026-09-22_vs-rivals.mp4")
     assert ed.edit_open(*ed.args, "Tiger Sharks", "Rivals")["project"]["crests"] == {"home": False, "away": False, "league": False}

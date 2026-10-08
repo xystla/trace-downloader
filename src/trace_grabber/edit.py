@@ -92,6 +92,41 @@ def default_project(home_name, away_name, remembered=None, bug=None) -> dict:
     return clean({"home": home, "away": {"name": away_name or ""}, "bug": bug, "marks": []})
 
 
+def looks(path) -> list:
+    """The score bug looks the person has saved by name, oldest first: [{"name", "bug"}]."""
+    try:
+        kept = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [{"name": look["name"], "bug": scorebug.style(look.get("bug"))} for look in kept if isinstance(kept, list)
+            and isinstance(look, dict) and isinstance(look.get("name"), str) and look["name"]]
+
+
+def _write_looks(path, kept) -> list:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_suffix(".part")
+    part.write_text(json.dumps(kept, indent=1), encoding="utf-8")
+    part.replace(path)
+    return kept
+
+
+def save_look(path, name, bug) -> list:
+    """Keep a look under a name (in place of one of the same name); returns all the looks."""
+    name = " ".join(name.split())[:40].strip() if isinstance(name, str) else ""
+    if not name:
+        raise RuntimeError("Give the look a name first.")
+    others = [look for look in looks(path) if look["name"].lower() != name.lower()]
+    return _write_looks(path, others + [{"name": name, "bug": scorebug.style(bug)}])
+
+
+def delete_look(path, name) -> list:
+    """Forget the look of that name; returns the looks that are left."""
+    kept = looks(path)
+    left = [look for look in kept if look["name"].lower() != str(name).lower()]
+    return _write_looks(path, left) if len(left) != len(kept) else kept
+
+
 def crest_path(game_root, which: str) -> Path:
     """Where a game's crest is kept: beside its edit."""
     if which not in CRESTS:

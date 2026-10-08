@@ -319,6 +319,16 @@ class Worker:
             known[self._active().id + ".bug"] = bug
         self._write(self._edit_teams_path(), json.dumps(known, indent=1).encode("utf-8"))
 
+    def edit_looks(self):
+        """The score bug looks saved by name, for any game and any team."""
+        return edit.looks(DATA / "edit_looks.json")
+
+    def edit_look_save(self, name, bug):
+        return edit.save_look(DATA / "edit_looks.json", name, bug)
+
+    def edit_look_delete(self, name):
+        return edit.delete_look(DATA / "edit_looks.json", name)
+
     def _kept_crest(self, which):
         """Where the person's own crest (or their league's) waits for their next game."""
         return DATA / "edit_crests" / f"{self._active().id}-{which}.png"

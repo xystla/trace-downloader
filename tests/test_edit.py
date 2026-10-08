@@ -127,6 +127,30 @@ def test_a_file_that_is_not_a_picture_is_refused_plainly(tmp_path):
         raise AssertionError("accepted an unknown crest")
 
 
+def test_score_bug_looks_can_be_saved_by_name_and_taken_away(tmp_path):
+    kept = tmp_path / "data" / "edit_looks.json"
+    assert edit.looks(kept) == []
+    first = edit.save_look(kept, "  Night   games ", {"font": "anton", "size": 9, "junk": 1})
+    assert first == [{"name": "Night games", "bug": {**scorebug.USUAL, "font": "anton", "size": 2.0}}] == edit.looks(kept)
+    edit.save_look(kept, "League final", {"design": "slim"})
+    again = edit.save_look(kept, "night GAMES", {"font": "poppins"})                   # the same name replaces, whatever its capitals
+    assert [(look["name"], look["bug"]["font"]) for look in again] == [("League final", "bebas"), ("night GAMES", "poppins")]
+    assert [look["name"] for look in edit.delete_look(kept, "league FINAL")] == ["night GAMES"]
+    assert edit.delete_look(kept, "never saved") == edit.looks(kept)
+    for bad in ("", "   ", None, 7):
+        try:
+            edit.save_look(kept, bad, {})
+        except RuntimeError as e:
+            assert str(e) == "Give the look a name first."
+        else:
+            raise AssertionError("saved without a name")
+    assert len(edit.save_look(kept, "x" * 90, {})[-1]["name"]) == 40
+    kept.write_text("not json")
+    assert edit.looks(kept) == []                                                       # a damaged file is no looks, not an error
+    kept.write_text('[{"name": "ok", "bug": {}}, {"name": 3}, "junk", {"bug": {}}]')
+    assert [look["name"] for look in edit.looks(kept)] == ["ok"]
+
+
 def test_the_bug_settings_travel_with_the_edit():
     usual = dict(scorebug.USUAL)
     assert edit.clean({})["bug"] == usual

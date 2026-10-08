@@ -1303,3 +1303,20 @@ def test_plates_and_layouts_include_the_crests_the_edit_shows(editor):
     with_crest = {**editor.project, "crests": {"home": True, "away": False, "league": True}}
     saved = editor.edit_save("t-1", with_crest)
     assert saved["layout"] == scorebug.layout(1.0, with_crest["home"], with_crest["away"], None, with_crest["crests"])
+
+
+def test_saved_score_bug_looks_are_listed_saved_and_deleted_through_the_app(editor):
+    store = []
+    w = editor._worker
+    w.edit_looks = lambda: list(store)
+    w.edit_look_save = lambda name, bug: store.append({"name": name, "bug": bug}) or list(store)
+    w.edit_look_delete = lambda name: [store.remove(look) for look in list(store) if look["name"] == name] and list(store) or list(store)
+    assert editor.edit_open("t-1")["looks"] == []
+    saved = editor.save_bug_look("Night games", {"font": "anton"})
+    assert saved == {"ok": True, "looks": [{"name": "Night games", "bug": {"font": "anton"}}]}
+    assert editor.edit_open("t-1")["looks"] == saved["looks"]
+    assert editor.delete_bug_look("Night games") == {"ok": True, "looks": []}
+    def refuse(name, bug):
+        raise RuntimeError("Give the look a name first.")
+    w.edit_look_save = refuse
+    assert editor.save_bug_look("", {}) == {"ok": False, "error": "Give the look a name first."}

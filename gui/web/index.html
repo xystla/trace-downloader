@@ -268,6 +268,9 @@
           </div>
           <div class="card ed-card">
             <h3>Score bug <button type="button" id="edBugReset" class="ed-reset" title="Put every score bug setting back to how it starts. Teams and crests are kept.">Reset</button></h3>
+            <div class="ed-look ed-saved"><span>Saved looks</span><select id="edLooks" aria-label="Use a saved score bug look"></select><button type="button" id="edLookDelete" title="Delete the chosen saved look.">Delete</button></div>
+            <div class="ed-look ed-saved"><span>Save as</span><input type="text" id="edLookName" maxlength="40" placeholder="Name this look" aria-label="A name for the score bug look as it is now"><button type="button" id="edLookSave" title="Save the score bug as it is now, to use on other games.">Save</button></div>
+            <p id="edLookNote" class="caption" hidden></p>
             <label class="ed-look"><span>Design</span><select id="edDesign" aria-label="The score bug's design"></select></label>
             <div class="ed-look"><span>League crest</span><span class="ed-crest-note">Stands to the left of the bug.</span><button type="button" class="ed-crest" data-crest="league"></button></div>
             <label class="switch ed-animate"><span>Shadow under crests<small>A slight drop shadow, to lift a crest off the bug and the picture.</small></span><input type="checkbox" id="edCrestShadow"></label>

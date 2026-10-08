@@ -396,7 +396,26 @@ class Api:
                 "fonts": [{"key": key, "label": label, "file": file} for key, (label, file) in scorebug.FONTS.items()],
                 "sizes": list(scorebug.SIZES),
                 "designs": [{"key": key, "label": label} for key, label in scorebug.DESIGNS.items()],
-                "usual": dict(scorebug.USUAL)}
+                "usual": dict(scorebug.USUAL), "looks": self._looks()}
+
+    def _looks(self):
+        try:
+            return self._w().edit_looks()
+        except Exception:
+            return []
+
+    def save_bug_look(self, name, bug):
+        """Keep the score bug's settings under a name, to use on other games."""
+        try:
+            return {"ok": True, "looks": self._w().edit_look_save(name, bug)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def delete_bug_look(self, name):
+        try:
+            return {"ok": True, "looks": self._w().edit_look_delete(name)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     @staticmethod
     def _bug_layout(project):

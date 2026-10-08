@@ -2865,6 +2865,7 @@ async function openEditor(id) {
     sources: res.sources, duration: res.duration, layout: res.layout, score: res.score, current: -1 });
   edOfferLooks(res.fonts || [], res.sizes || [0.5, 2], res.designs || []);
   ed.usual = res.usual || null;
+  edDrawLooks(res.looks || [], "");
   edListGames();
   const video = el("edVideo");
   if (!edControls) {              // the app's usual play / scrub / speed bar, made once
@@ -2984,6 +2985,54 @@ document.querySelectorAll(".ed-crest").forEach((b) => {
     edSave();
   };
 });
+
+// Saved looks: the score bug's settings kept under a name, for any game.
+let edLooks = [];
+function edDrawLooks(looks, chosen) {
+  edLooks = looks;
+  const first = node("option", "", looks.length ? "Choose a saved look…" : "None saved yet");
+  first.value = "";
+  el("edLooks").replaceChildren(first, ...looks.map((look) => {
+    const o = node("option", "", look.name);
+    o.value = look.name;
+    return o;
+  }));
+  el("edLooks").value = looks.some((look) => look.name === chosen) ? chosen : "";
+  el("edLooks").disabled = !looks.length;
+  el("edLookDelete").disabled = !el("edLooks").value;
+}
+function edLookSay(text) {
+  el("edLookNote").hidden = !text;
+  el("edLookNote").textContent = text;
+}
+el("edLooks").onchange = () => {
+  const look = edLooks.find((l) => l.name === el("edLooks").value);
+  el("edLookDelete").disabled = !look;
+  if (!look) return;
+  ed.project.bug = { ...look.bug };
+  edLookSay("");
+  edSave();
+};
+el("edLookSave").onclick = async () => {
+  const name = el("edLookName").value;
+  let res;
+  try { res = await api().save_bug_look(name, ed.project.bug); } catch (e) { res = { ok: false, error: String(e) }; }
+  if (!(res && res.ok)) { edLookSay((res && res.error) || "The look couldn't be saved."); return; }
+  const kept = res.looks[res.looks.length - 1].name;
+  el("edLookName").value = "";
+  edDrawLooks(res.looks, kept);
+  edLookSay(`Saved "${kept}". Choose it under Saved looks on any game.`);
+};
+el("edLookName").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); el("edLookSave").click(); } };
+el("edLookDelete").onclick = async () => {
+  const name = el("edLooks").value;
+  if (!name) return;
+  let res;
+  try { res = await api().delete_bug_look(name); } catch (e) { res = { ok: false, error: String(e) }; }
+  if (!(res && res.ok)) { edLookSay((res && res.error) || "The look couldn't be deleted."); return; }
+  edDrawLooks(res.looks, "");
+  edLookSay(`Deleted "${name}". The score bug on screen is unchanged.`);
+};
 
 // "Reset" puts every score bug setting back to how the app starts. It asks first
 // (press it twice), since the look is also what the next game would start from.

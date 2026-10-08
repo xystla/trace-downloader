@@ -585,6 +585,9 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-look input[type=color] { width:44px; height:30px; margin:0; }
 .ed-look button { margin:0; padding:4px 10px; font-size:12px; }
 .ed-legend { flex-wrap:wrap; margin-top:-4px; }
+.ed-saved select, .ed-saved input[type=text] { grid-column:auto; margin:0; width:100%; min-width:0; }
+.ed-saved input[type=text] { padding:8px 10px; font-size:13px; }
+#edLookNote { margin:6px 0 0; font-size:12px; }
 .ed-crest { margin:0; padding:6px 9px; font-size:12px; white-space:nowrap; }
 .ed-crest.on { color:var(--accent-text, var(--accent)); border-color:var(--accent); }
 .ed-crest-note { font-size:11.5px; color:var(--muted); }
