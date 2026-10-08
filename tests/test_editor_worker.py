@@ -112,3 +112,16 @@ def test_an_export_that_will_not_fit_is_refused_first(ed, monkeypatch):
     with pytest.raises(ed.module.space.NotEnoughSpace):
         ed.export_edit(*ed.args, "best")
     assert ed.exports == []
+
+
+def test_room_is_checked_for_an_export_bigger_than_the_original(ed, monkeypatch):
+    # At the best quality a real game came out nearly twice the size of its source.
+    _video(ed, "2026-09-22_vs-rivals.mp4")                        # 1000 bytes
+    ed.edit_save(*ed.args, {"marks": MARKS})
+    margin = ed.module.space.MARGIN
+    monkeypatch.setattr(ed.module.space, "free", lambda folder: 1500 + margin)
+    with pytest.raises(ed.module.space.NotEnoughSpace):
+        ed.export_edit(*ed.args, "best")
+    monkeypatch.setattr(ed.module.space, "free", lambda folder: 2000 + margin)
+    ed.export_edit(*ed.args, "best")
+    assert len(ed.exports) == 1

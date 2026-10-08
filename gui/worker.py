@@ -344,8 +344,9 @@ class Worker:
         project = edit.load(folders.root)
         if project is None:
             raise RuntimeError("There is no edit for this game yet.")
-        # The export can be as big as the original, and is written beside it.
-        space.check(folders.root, sum(Path(f).stat().st_size for f in files) + space.MARGIN)
+        # The export is written beside the original and can be bigger than it: at
+        # the best quality a real game came out nearly twice its source's size.
+        space.check(folders.root, 2 * sum(Path(f).stat().st_size for f in files) + space.MARGIN)
         name = re.sub(r"_half\d(-\d+)?$", "", Path(files[0]).stem)
         dest = folders.edited / f"{name} (edited).mp4"
         export.export(project, files, dest, quality, on_progress, on_proc)
