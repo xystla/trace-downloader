@@ -11,7 +11,7 @@ class _Trace:
     to how many times it fails first (None = always); `asked` records fetches."""
 
     def __init__(self, monkeypatch):
-        self.asked, self.fail, self.joined, self.join_code = [], {}, [], 0
+        self.asked, self.fail, self.joined, self.join_code, self.cmds = [], {}, [], 0, []
         monkeypatch.setattr(pieces, "_get", self.get)
         monkeypatch.setattr(pieces, "PAUSE", 0)
         monkeypatch.setattr(pieces.subprocess, "Popen", self.popen)
@@ -27,6 +27,7 @@ class _Trace:
 
     def popen(self, cmd, **kwargs):
         trace = self
+        trace.cmds.append(cmd)
         playlist = Path(cmd[cmd.index("-i") + 1])
         trace.joined.append([line for line in playlist.read_text().splitlines() if line.endswith(".ts")])
 
@@ -274,3 +275,22 @@ def test_discard_also_forgets_a_finished_half(trace, tmp_path):
     pieces.fetch(_parts("a"), dest, {}, "highest", owner="g-1", workers=1)
     pieces.discard(dest)
     assert not pieces.belongs(dest, "g-1") and [p.name for p in tmp_path.iterdir()] == ["game_half1.mp4"]
+
+
+def test_a_half_can_be_saved_without_sound(trace, tmp_path):
+    pieces.fetch(_parts("a"), tmp_path / "loud_half1.mp4", {}, "highest", workers=1)
+    pieces.fetch(_parts("a"), tmp_path / "quiet_half1.mp4", {}, "highest", workers=1, sound=False)
+    loud, quiet = trace.cmds
+    assert "-an" not in loud and "-bsf:a" in loud
+    assert "-an" in quiet and "-bsf:a" not in quiet and quiet[quiet.index("-c") + 1] == "copy"
+
+
+def test_a_half_finished_with_the_other_sound_choice_is_not_reused(trace, tmp_path):
+    dest = tmp_path / "game_half1.mp4"
+    pieces.fetch(_parts("a"), dest, {}, "highest", owner="g-1", workers=1, sound=False)
+    assert pieces.finished(dest, "g-1", "highest", sound=False) is True
+    assert pieces.finished(dest, "g-1", "highest") is False
+    # A half finished before there was a choice has its sound.
+    pieces._record(dest).write_text(json.dumps({"owner": "g-1", "quality": "highest"}))
+    assert pieces.finished(dest, "g-1", "highest") is True
+    assert pieces.finished(dest, "g-1", "highest", sound=False) is False

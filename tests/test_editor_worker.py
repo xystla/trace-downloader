@@ -30,7 +30,9 @@ def ed(monkeypatch, tmp_path):
         "duration": 1500.0 if "half" in Path(path).name else 4480.0, "width": 1920, "height": 1080, "bitrate": 5000, "audio": True, "fps": 30.0})
     monkeypatch.setattr(worker.space, "free", lambda folder: 500 * GB)
     w.exports = []
-    def export(project, files, dest, quality="best", progress_cb=None, on_proc=None, crests=None):
+    w.sounds = []
+    def export(project, files, dest, quality="best", progress_cb=None, on_proc=None, crests=None, sound=True):
+        w.sounds.append(sound)
         w.exports.append((project["home"]["code"], [Path(f).name for f in files], quality, sorted(crests or {})))
         if progress_cb:
             progress_cb(50, 600.0)
@@ -193,3 +195,13 @@ def test_room_is_checked_for_an_export_bigger_than_the_original(ed, monkeypatch)
     monkeypatch.setattr(ed.module.space, "free", lambda folder: 2000 + margin)
     ed.export_edit(*ed.args, "best")
     assert len(ed.exports) == 1
+
+
+def test_an_export_without_sound_is_asked_for_that_way(ed):
+    _video(ed, "2026-09-22_vs-rivals.mp4")
+    project = ed.edit_open(*ed.args, "Tiger Sharks", "Rivals")["project"]
+    project["marks"] = MARKS
+    ed.edit_save(*ed.args, project)
+    ed.export_edit(*ed.args, "best")
+    ed.export_edit(*ed.args, "best", sound=False)
+    assert ed.sounds == [True, False]

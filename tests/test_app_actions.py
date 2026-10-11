@@ -1190,7 +1190,7 @@ def _events(api, name):
 
 
 def test_an_export_reports_progress_and_then_the_finished_file(editor):
-    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None):
+    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None, sound=True):
         editor.asked.append(("export", game_id, quality))
         on_progress(25, 300.0)
         on_progress(50, 600.0)
@@ -1216,7 +1216,7 @@ def test_only_one_export_runs_at_a_time(editor):
 
 def test_stopping_an_export_ends_it_and_says_nothing_was_exported(editor):
     stopped = []
-    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None):
+    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None, sound=True):
         on_proc(SimpleNamespace(terminate=lambda: stopped.append("terminated")))
         editor.export_stop()
         raise RuntimeError("The export didn't finish.")
@@ -1248,7 +1248,7 @@ def test_the_edited_game_can_be_played_in_the_app(editor):
 def test_stop_pressed_before_the_export_has_properly_started_still_stops_it(editor):
     # Reading the video's facts and drawing the plates comes first; ffmpeg starts a moment later.
     ended = []
-    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None):
+    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None, sound=True):
         editor.export_stop()                                        # pressed during the preparation
         on_proc(SimpleNamespace(terminate=lambda: ended.append("terminated")))
         raise RuntimeError("The export didn't finish.")
@@ -1320,3 +1320,23 @@ def test_saved_score_bug_looks_are_listed_saved_and_deleted_through_the_app(edit
         raise RuntimeError("Give the look a name first.")
     w.edit_look_save = refuse
     assert editor.save_bug_look("", {}) == {"ok": False, "error": "Give the look a name first."}
+
+
+def test_saving_videos_without_sound_is_a_setting(auto, tmp_path):
+    _config(auto, tmp_path)
+    auto._worker.logged_in = lambda: True
+    auto._worker.login_detail = lambda: ""
+    assert auto.get_status()["settings"]["mute"] is False
+    assert auto.save_settings({"mute": True}) == {"ok": True}
+    assert auto.get_status()["settings"]["mute"] is True
+
+
+def test_an_export_can_be_started_without_sound(editor):
+    asked = []
+    def export_edit(game_id, date, opponent, quality, on_progress=None, on_proc=None, sound=True):
+        asked.append(sound)
+        return "/v/g/Edited/g (edited).mp4"
+    editor._worker.export_edit = export_edit
+    assert editor.export_start("t-1", "best", False) == {"ok": True}
+    assert editor.export_start("t-1")["ok"] is True
+    assert asked == [False, True]

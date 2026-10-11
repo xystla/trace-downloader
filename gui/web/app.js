@@ -36,6 +36,7 @@ async function refresh() {
   if (s.welcome) showWelcome();
   if (s.settings) el("quality").value = s.settings.quality;
   if (s.settings) el("combine").checked = s.settings.combine !== false;
+  if (s.settings) el("mute").checked = s.settings.mute === true;
   if (s.settings) { el("fileName").value = s.settings.file_name || ""; showFileNamePreview(); }
   if (s.settings && s.settings.output_dir) {
     el("outDir").textContent = s.settings.output_dir;
@@ -421,7 +422,7 @@ function videoControls(frame, video) {
   const seek = document.createElement("input");
   seek.type = "range"; seek.className = "vc-seek"; seek.min = "0"; seek.max = "0"; seek.step = "0.1"; seek.value = "0";
   seek.setAttribute("aria-label", "Position in the video");
-  const mute = iconButton("volume", "Mute", () => { video.muted = !video.muted; });
+  const mute = iconButton("volume", "Mute (M)", () => toggleMute(video));
   const volume = document.createElement("input");
   volume.type = "range"; volume.className = "vc-volume"; volume.min = "0"; volume.max = "1"; volume.step = "0.05"; volume.value = "1";
   volume.setAttribute("aria-label", "Volume");
@@ -458,6 +459,11 @@ function videoControls(frame, video) {
   video.addEventListener("timeupdate", show);
   for (const name of ["play", "pause", "volumechange", "emptied"]) video.addEventListener(name, showState);
   video.addEventListener("ratechange", () => { speed.value = String(video.playbackRate); });
+  const sound = savedSound();
+  video.volume = sound.volume;
+  video.muted = sound.muted;
+  showState();                                   // no "volumechange" is sent when nothing changed
+  video.addEventListener("volumechange", () => keepSound(video));
   setSpeed(video, savedSpeed());
   speed.value = String(video.playbackRate);      // no "ratechange" is sent when it was already this
   seek.addEventListener("input", () => { dragging = true; show(); });
@@ -487,11 +493,33 @@ function savedSpeed() {
   } catch (e) { return 1; }
 }
 
+// Mute and the volume are yours too: kept for every video from now on.
+function savedSound() {
+  try {
+    const kept = JSON.parse(localStorage.getItem("sound")) || {};
+    const volume = Number(kept.volume);
+    return { muted: kept.muted === true, volume: volume > 0 && volume <= 1 ? volume : 1 };
+  } catch (e) { return { muted: false, volume: 1 }; }
+}
+
+function keepSound(video) {
+  // A slider pulled to nothing is a mute: the volume to come back to is the last one heard.
+  const sound = { muted: video.muted || video.volume === 0, volume: video.volume || savedSound().volume };
+  try { localStorage.setItem("sound", JSON.stringify(sound)); } catch (e) { /* not kept */ }
+}
+
 // The speed is yours, not the game's: it is kept for every video from now on.
 function setSpeed(video, rate) {
   video.defaultPlaybackRate = rate;      // so it survives switching to another video
   video.playbackRate = rate;
   try { localStorage.setItem("speed", String(rate)); } catch (e) { /* not kept */ }
+}
+
+// Sound back on is never silence: a volume left at nothing goes back to the last one heard.
+function toggleMute(video) {
+  const quiet = video.muted || video.volume === 0;
+  if (quiet && video.volume === 0) video.volume = savedSound().volume;
+  video.muted = !quiet;
 }
 
 function stepSpeed(video, dir) {
@@ -565,7 +593,7 @@ const PLAYER_KEYS = {
   ".": ({ video }) => stepFrame(video, 1),
   "<": ({ video, frame }) => { stepSpeed(video, -1); flash(frame, video.playbackRate + "×"); },
   ">": ({ video, frame }) => { stepSpeed(video, 1); flash(frame, video.playbackRate + "×"); },
-  m: ({ video, frame }) => { video.muted = !video.muted; flash(frame, video.muted ? "Muted" : "Sound on"); },
+  m: ({ video, frame }) => { toggleMute(video); flash(frame, video.muted ? "Muted" : "Sound on"); },
   f: ({ frame }) => toggleFull(frame),
   "?": () => el("shortcuts").showModal(),
 };
@@ -2746,6 +2774,7 @@ el("fileName").onchange = (e) => api().save_settings({ file_name: e.target.value
 el("theme").value = document.documentElement.dataset.theme || "system";
 el("theme").onchange = (e) => setTheme(e.target.value);
 el("combine").onchange = (e) => api().save_settings({ combine: e.target.checked });
+el("mute").onchange = (e) => api().save_settings({ mute: e.target.checked });
 // Run on first ready, and also if the API is already present (e.g. after a
 // page reload from the setup screen, where pywebviewready won't fire again).
 // ---- updates: ask first, install only on "Update now"; say what changed afterwards ----
@@ -3445,7 +3474,7 @@ window.addEventListener("resize", () => { if (ed.id) edDrawBug(); });
 
 // ---- editor: exporting ----
 // One export runs at a time, whatever game the Editor is showing meanwhile.
-const edRun = { id: null, percent: 0, eta: null, note: "", warn: false, quality: "best" };
+const edRun = { id: null, percent: 0, eta: null, note: "", warn: false, quality: "best", sound: true };
 
 function edDrawExport() {
   const box = el("edExport");
@@ -3482,15 +3511,21 @@ function edDrawExport() {
         Object.assign(edRun, { note: "", warn: false, done: null });
         edLetGo();
         let res;
-        try { res = await api().export_start(ed.id, edRun.quality); } catch (e) { res = { ok: false, error: String(e) }; }
+        try { res = await api().export_start(ed.id, edRun.quality, edRun.sound); } catch (e) { res = { ok: false, error: String(e) }; }
         if (res && res.ok) Object.assign(edRun, { id: ed.id, percent: 0, eta: null });
         else Object.assign(edRun, { note: (res && res.error) || "The export couldn't start.", warn: true });
         edDrawExport();
       });
     go.classList.add("primary");
+    const quiet = node("label", "switch");
+    const silent = document.createElement("input");
+    silent.type = "checkbox";
+    silent.checked = !edRun.sound;
+    silent.onchange = () => { edRun.sound = !silent.checked; };
+    quiet.append(node("span", null, "Export without sound"), silent);
     const row = node("div", "row");
     row.append(quality, go);
-    parts.push(row);
+    parts.push(quiet, row);
   }
   box.replaceChildren(...parts);
 }

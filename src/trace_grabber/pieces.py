@@ -137,9 +137,10 @@ def _fetch_piece(url: str, path: Path, headers: dict, should_stop) -> int:
     return len(data)
 
 
-def _join(parts, folder: Path, dest: Path, on_proc) -> None:
+def _join(parts, folder: Path, dest: Path, on_proc, sound: bool = True) -> None:
     """Join the pieces into dest through a local playlist, so ffmpeg reads them
-    just as it would read Trace's own playlist."""
+    just as it would read Trace's own playlist. Without `sound` the audio is
+    left out of the video."""
     longest = max(seconds for seconds, _ in parts)
     lines = ["#EXTM3U", "#EXT-X-VERSION:3", f"#EXT-X-TARGETDURATION:{math.ceil(longest)}",
              "#EXT-X-MEDIA-SEQUENCE:0"]
@@ -149,7 +150,9 @@ def _join(parts, folder: Path, dest: Path, on_proc) -> None:
     playlist = folder / PLAYLIST
     playlist.write_text("\n".join(lines) + "\n", encoding="utf-8")
     with complete_or_nothing(dest) as part:
-        cmd = [ffmpeg_path(), "-y", "-i", str(playlist), "-c", "copy", "-bsf:a", "aac_adtstoasc", str(part)]
+        cmd = [ffmpeg_path(), "-y", "-i", str(playlist), "-c", "copy"]
+        cmd += ["-bsf:a", "aac_adtstoasc"] if sound else ["-an"]
+        cmd.append(str(part))
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 **subprocess_flags())
         if on_proc is not None:
@@ -160,7 +163,7 @@ def _join(parts, folder: Path, dest: Path, on_proc) -> None:
 
 
 def fetch(parts, dest, headers: dict, quality: str, on_progress=None, should_stop=None,
-          on_proc=None, workers: int = 4, owner: str = "") -> None:
+          on_proc=None, workers: int = 4, owner: str = "", sound: bool = True) -> None:
     """Download a half to dest. `parts` is segments.parse() output: (seconds, URL)
     for each piece, in order. Pieces already on disk from an earlier attempt are
     not fetched again. Raises Stopped when should_stop() says so, RuntimeError when
@@ -168,7 +171,8 @@ def fetch(parts, dest, headers: dict, quality: str, on_progress=None, should_sto
 
     `owner` names whose download this is (the game's id). Two games can share a
     file name, so pieces are only carried on with for the same owner, and the
-    finished half is left with a record of it (see finished()).
+    finished half is left with a record of it (see finished()). With `sound`
+    False the half is saved without its audio.
 
     on_progress(done_bytes, total_bytes, pieces_done, pieces_total) follows it, the
     total being a projection from the pieces fetched so far. on_proc(process) hands
@@ -215,17 +219,22 @@ def fetch(parts, dest, headers: dict, quality: str, on_progress=None, should_sto
         raise error
     if asked_to_stop():
         raise Stopped("stopped")
-    _join(parts, folder, dest, on_proc)
-    _record(dest).write_text(json.dumps({"owner": owner, "quality": quality}), encoding="utf-8")
+    _join(parts, folder, dest, on_proc, sound)
+    record = {"owner": owner, "quality": quality}
+    if not sound:
+        record["sound"] = False
+    _record(dest).write_text(json.dumps(record), encoding="utf-8")
     _hide(_record(dest))
     shutil.rmtree(folder, ignore_errors=True)
 
 
-def finished(dest, owner: str, quality: str) -> bool:
+def finished(dest, owner: str, quality: str, sound: bool = True) -> bool:
     """Is dest a half this same download already finished? A video that merely
-    has the name (another game's, one at another quality, one saved by hand)
-    is not."""
-    return Path(dest).exists() and _read(_record(dest)) == {"owner": owner, "quality": quality}
+    has the name (another game's, one at another quality, one saved with or
+    without sound when the other was asked for, one saved by hand) is not."""
+    record = _read(_record(dest))
+    return (Path(dest).exists() and bool(record.pop("sound", True)) == sound
+            and record == {"owner": owner, "quality": quality})
 
 
 def belongs(dest, owner: str) -> bool:

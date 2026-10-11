@@ -11,6 +11,7 @@ class Config:
     quality: str
     team_urls: list[str] = field(default_factory=list)
     combine_halves: bool = True
+    mute_downloads: bool = False      # save full-game videos without their sound
     file_name: str = ""      # the person's pattern for naming full-game videos; empty = the built-in names
 
 def load_config(path: Path) -> Config:
@@ -28,5 +29,6 @@ def load_config(path: Path) -> Config:
         quality=quality,
         team_urls=list(team_urls),
         combine_halves=combine,
+        mute_downloads=bool(data.get("mute_downloads", False)),
         file_name=str(data.get("file_name") or ""),
     )

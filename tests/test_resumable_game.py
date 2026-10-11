@@ -36,8 +36,10 @@ def game(monkeypatch, tmp_path):
     monkeypatch.setattr(worker.space, "free", lambda folder: 500 * GB)
     w.fetched = []
     w.owners = []
-    def fetch(parts, dest, headers, quality, on_progress=None, should_stop=None, on_proc=None, owner=""):
+    w.sounds = []
+    def fetch(parts, dest, headers, quality, on_progress=None, should_stop=None, on_proc=None, owner="", sound=True):
         w.fetched.append(dest.name)
+        w.sounds.append(sound)
         w.owners.append(owner)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"video")
@@ -238,3 +240,11 @@ def test_downloading_does_not_un_save_a_game_whose_video_is_there(game):
     game.fetch = stopped
     game.run()
     assert json.loads(state.read_text()) == ["demo-7"]
+
+
+def test_a_game_is_saved_without_sound_when_that_is_chosen(game):
+    assert game.run() == 2 and game.sounds == [True, True]
+    game._cfg.mute_downloads = True
+    game.fetched.clear(); game.sounds.clear()
+    assert game.run() == 2
+    assert game.sounds == [False, False] and len(game.fetched) == 2

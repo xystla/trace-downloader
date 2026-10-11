@@ -95,6 +95,7 @@ class Api:
             **self.auto_settings(),
             "auto_options": self.auto_options(),
             "settings": {"output_dir": str(cfg.output_dir), "quality": cfg.quality, "combine": cfg.combine_halves,
+                         "mute": cfg.mute_downloads,
                          "file_name": cfg.file_name},
             "version": paths.APP_VERSION,
         }
@@ -468,8 +469,9 @@ class Api:
         plate = scorebug.render(teams["home"], teams["away"], count(home_score), count(away_score), bug=teams["bug"], crests=pictures)
         return {"ok": True, "url": "data:image/png;base64," + base64.b64encode(scorebug.png_bytes(plate)).decode("ascii")}
 
-    def export_start(self, game_id, quality="best"):
-        """Start exporting a game's edit. Progress and the result arrive as
+    def export_start(self, game_id, quality="best", sound=True):
+        """Start exporting a game's edit, without its audio when `sound` is
+        False. Progress and the result arrive as
         'export_progress' and 'export_done' events."""
         g = self._game_cache.get(game_id)
         if not g:
@@ -493,7 +495,7 @@ class Api:
             done = {"id": game_id, "ok": False, "stopped": False}
             try:
                 path = self._w().export_edit(g.id, g.date, g.opponent, "faster" if quality == "faster" else "best",
-                                             on_progress, started)
+                                             on_progress, started, sound=sound is not False)
                 done.update(ok=True, label="Edited game", url=self._url(path))
                 platform_tasks.notify(f"Exported vs {g.opponent or g.title} with the score bug")
             except Exception as e:
@@ -1024,6 +1026,8 @@ class Api:
             data["quality"] = settings["quality"]
         if "combine" in settings:
             data["combine_halves"] = bool(settings["combine"])
+        if "mute" in settings:
+            data["mute_downloads"] = bool(settings["mute"])
         if "file_name" in settings:
             data["file_name"] = str(settings["file_name"] or "").strip()[:200]
         retime = settings.get("interval") in INTERVALS and not isinstance(settings.get("interval"), bool)

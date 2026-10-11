@@ -333,3 +333,11 @@ def test_an_export_that_cannot_replace_an_open_file_says_so(monkeypatch, tmp_pat
     monkeypatch.setattr(export, "complete_or_nothing", in_use)
     with pytest.raises(RuntimeError, match="open in a player"):
         export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4")
+
+
+def test_an_export_can_leave_the_sound_out(monkeypatch, tmp_path):
+    ran = _fake_export(monkeypatch)
+    export.export(PROJECT, ["/v/game.mp4"], tmp_path / "loud.mp4", "best")
+    assert "[ca]" in ran["cmd"] and "[ca]" in ran["graph"]
+    export.export(PROJECT, ["/v/game.mp4"], tmp_path / "quiet.mp4", "best", sound=False)
+    assert "[ca]" not in ran["cmd"] and "-c:a" not in ran["cmd"] and "[ca]" not in ran["graph"]

@@ -4,7 +4,7 @@ from pathlib import Path
 import platformdirs
 
 APP_NAME = "TraceDown"
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
 
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))

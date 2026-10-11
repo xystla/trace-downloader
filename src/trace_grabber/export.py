@@ -203,10 +203,11 @@ def run(cmd, total: float, cwd, progress_cb=None, on_proc=None) -> None:
         raise RuntimeError("The export didn't finish.")
 
 
-def export(project: dict, files, dest, quality: str = "best", progress_cb=None, on_proc=None, crests=None) -> None:
+def export(project: dict, files, dest, quality: str = "best", progress_cb=None, on_proc=None, crests=None,
+           sound: bool = True) -> None:
     """Export the edit of a game whose video is `files` (one file, or the halves
     in order) to dest. The file appears only once it is whole; an earlier
-    export there is replaced only then. Raises RuntimeError with a message for
+    export there is replaced only then. Without `sound` it has no audio. Raises RuntimeError with a message for
     the person: the first problem with the marks, or that it didn't finish."""
     segments, problems = edit.outline(project["marks"])
     if problems:
@@ -214,7 +215,7 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
     dest = Path(dest)
     infos = [video_info(f) for f in files]
     parts = pieces(segments, [(f, info["duration"]) for f, info in zip(files, infos)])
-    audio = all(info["audio"] for info in infos)
+    audio = sound and all(info["audio"] for info in infos)
     scale = infos[0]["height"] / 1080
     total = edit.play_length(segments)
     changes = edit.score_changes(project["marks"], segments)

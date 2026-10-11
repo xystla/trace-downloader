@@ -55,3 +55,10 @@ def test_file_name_pattern_is_optional(tmp_path):
     cfg_file.write_text("output_dir: ~/Trace Videos\ncheck_interval_hours: 3\nquality: highest\n"
                         "file_name: '{team} vs {opponent}'\n")
     assert load_config(cfg_file).file_name == "{team} vs {opponent}"
+
+def test_videos_keep_their_sound_unless_told_otherwise(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("output_dir: ~/x\ncheck_interval_hours: 3\nquality: highest\n" + _TEAM_URLS)
+    assert load_config(cfg_file).mute_downloads is False
+    cfg_file.write_text("output_dir: ~/x\ncheck_interval_hours: 3\nquality: highest\nmute_downloads: true\n" + _TEAM_URLS)
+    assert load_config(cfg_file).mute_downloads is True

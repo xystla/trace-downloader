@@ -383,8 +383,9 @@ class Worker:
         self._remember_team(kept["home"], kept["bug"])
         return kept
 
-    def export_edit(self, game_id, date, opponent, quality, on_progress=None, on_proc=None):
+    def export_edit(self, game_id, date, opponent, quality, on_progress=None, on_proc=None, sound=True):
         """Export the game's saved edit into its Edited folder; returns the file.
+        Without `sound` the export has no audio.
         Raises RuntimeError (or NotEnoughSpace) with a message for the person."""
         files = self._edit_files(game_id, date, opponent)
         folders = self._folders(game_id, date, opponent)
@@ -397,7 +398,7 @@ class Worker:
         name = re.sub(r"_half\d(-\d+)?$", "", Path(files[0]).stem)
         dest = folders.edited / f"{name} (edited).mp4"
         export.export(project, files, dest, quality, on_progress, on_proc,
-                      crests=edit.crest_images(folders.root, project["crests"]))
+                      crests=edit.crest_images(folders.root, project["crests"]), sound=sound)
         return str(dest)
 
     # ---- thread internals ----
@@ -492,6 +493,7 @@ class Worker:
             # "saved" on the strength of the old record while the new one is partway.
             unmark(acct.state_path(DATA), game_id)
         chosen = self._cfg.quality
+        sound = not getattr(self._cfg, "mute_downloads", False)
         stem = self._stem(date or game_id, opponent or None)
         halves = []                 # (number, where it goes, its pieces, estimated bytes)
         for number, murl in enumerate(masters, 1):
@@ -503,7 +505,7 @@ class Worker:
                            space.estimate(bandwidth, sum(seconds for seconds, _ in parts))))
         # A half counts as done only if this same download (this game, this quality)
         # finished it; a video that merely has the name is not ours to reuse.
-        done = {number for number, dest, _, _ in halves if pieces.finished(dest, game_id, chosen)}
+        done = {number for number, dest, _, _ in halves if pieces.finished(dest, game_id, chosen, sound)}
         if halves:
             space.check(out_base, space.needed(
                 [(size, pieces.bytes_on_disk(dest), number in done) for number, dest, _, size in halves],
@@ -539,7 +541,8 @@ class Worker:
                     pieces.fetch(parts, dest, headers, chosen,
                                  on_progress=lambda *numbers, n=number: report(n, *numbers),
                                  should_stop=self._cancel.is_set,
-                                 on_proc=lambda pr: setattr(self, "_proc", pr), owner=game_id)
+                                 on_proc=lambda pr: setattr(self, "_proc", pr), owner=game_id,
+                                 sound=sound)
                 except RuntimeError:
                     if self._cancel.is_set():
                         break       # stopped: what was fetched stays, for Resume

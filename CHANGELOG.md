@@ -3,6 +3,11 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.5.2
+- Save full games without sound: a new switch in Settings, for games downloaded from now on. Highlights and recaps keep their sound.
+- The player remembers mute and the volume from one game to the next.
+- Export without sound: a switch beside the Editor's Export button leaves the sound out of the edited game.
+
 ## 1.5.1
 - Fixed a full-game download ending in "Download failed" on a new install, even though the video had been saved.
 
