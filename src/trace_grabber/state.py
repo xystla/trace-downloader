@@ -10,6 +10,7 @@ def load_state(path: Path) -> set[str]:
 def mark_done(path: Path, game_id: str) -> None:
     done = load_state(path)
     done.add(game_id)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(sorted(done), indent=2))
 
 def new_game_ids(game_ids: list[str], path: Path) -> list[str]:
