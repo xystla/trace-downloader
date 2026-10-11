@@ -291,6 +291,15 @@ def test_a_half_finished_with_the_other_sound_choice_is_not_reused(trace, tmp_pa
     assert pieces.finished(dest, "g-1", "highest", sound=False) is True
     assert pieces.finished(dest, "g-1", "highest") is False
     # A half finished before there was a choice has its sound.
+    pieces._record(dest).unlink()           # Windows won't write over a hidden file
     pieces._record(dest).write_text(json.dumps({"owner": "g-1", "quality": "highest"}))
     assert pieces.finished(dest, "g-1", "highest") is True
     assert pieces.finished(dest, "g-1", "highest", sound=False) is False
+
+
+def test_a_half_downloaded_again_replaces_its_record(trace, tmp_path):
+    # The record is a hidden file on Windows, which can't be written over in place.
+    dest = tmp_path / "game_half1.mp4"
+    pieces.fetch(_parts("a"), dest, {}, "highest", owner="g-1", workers=1, sound=False)
+    pieces.fetch(_parts("a"), dest, {}, "highest", owner="g-1", workers=1)
+    assert pieces.finished(dest, "g-1", "highest") is True

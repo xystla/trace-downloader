@@ -223,6 +223,7 @@ def fetch(parts, dest, headers: dict, quality: str, on_progress=None, should_sto
     record = {"owner": owner, "quality": quality}
     if not sound:
         record["sound"] = False
+    _record(dest).unlink(missing_ok=True)       # Windows won't write over the hidden record of an earlier attempt
     _record(dest).write_text(json.dumps(record), encoding="utf-8")
     _hide(_record(dest))
     shutil.rmtree(folder, ignore_errors=True)

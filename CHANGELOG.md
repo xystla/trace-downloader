@@ -3,6 +3,10 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.5.3
+- Fixed a download failing at the very end on Windows when a half was downloaded again, for instance after changing the quality or the sound setting partway through.
+- On Windows this is also the first version with what 1.5.2 added: saving full games without sound, exporting without sound, and a player that remembers mute.
+
 ## 1.5.2
 - Save full games without sound: a new switch in Settings, for games downloaded from now on. Highlights and recaps keep their sound.
 - The player remembers mute and the volume from one game to the next.
