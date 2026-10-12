@@ -19,6 +19,9 @@ class Game:
     # Final score as entered on Trace, from our team's side; None if not entered.
     score_us: int | None = None
     score_them: int | None = None
+    # Where Trace keeps this game's video and poster, e.g. "us-west-2/soccer/qaapi";
+    # None if Trace didn't say.
+    prefix: str | None = None
 
 # Match cards structurally: attribute/class order and nested labels can vary.
 _POSTER_RE = re.compile(r'/teams/([a-z0-9]+)/games/([a-z0-9]+-\d+)/')
@@ -123,7 +126,7 @@ def _list_page_games(page: Page, team_url: str, max_games: int = 60, max_scrolls
 def _list_api_games(request, team_url, max_games):
     # Reuse the authenticated teamGames API already used by analytics when
     # Trace's rendered game cards are unavailable or have changed.
-    from . import analytics
+    from . import analytics, streams
     slug = team_url.rstrip("/").rsplit("/", 1)[-1]
     team_id = analytics.team_numeric_id(request, slug)
     if not team_id:
@@ -148,7 +151,8 @@ def _list_api_games(request, team_url, max_games):
         games.append(Game(id=f"{slug}-{row['game_id']}", team_id=slug,
                           date=(row.get("full_date") or "")[:10], opponent=opponent,
                           title=(ours.get("title") or slug) + " vs. " + opponent,
-                          score_us=ours.get("score"), score_them=other.get("score")))
+                          score_us=ours.get("score"), score_them=other.get("score"),
+                          prefix=streams.prefix_from_base_path(row.get("base_path"))))
     return sorted(games, key=lambda g: (g.date, int(g.id.rsplit("-", 1)[1])), reverse=True)[:max_games]
 
 

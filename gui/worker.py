@@ -42,6 +42,7 @@ class Worker:
         self._athlete_id = None
         self._login_detail = ""  # last login-check detail, surfaced in the UI for diagnostics
         self._thumb_prefix = {}  # team_id -> working URL prefix, learned on first hit
+        self._prefixes = {}      # game id -> the URL prefix Trace listed it under
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._started = threading.Event()
         self._thread.start()
@@ -464,6 +465,7 @@ class Worker:
                 self._games_errors.append(str(error))
         out = sorted({game.id: game for game in out}.values(),
                      key=lambda game: game.date, reverse=True)
+        self._prefixes = {game.id: game.prefix for game in out if game.prefix}
         # auto-name a freshly-migrated account from its games
         if acct and acct.label.startswith("Account ") and out and " vs. " in out[0].title:
             acct.label = out[0].title.split(" vs. ", 1)[0].strip()
@@ -641,9 +643,10 @@ class Worker:
         return space.free(acct.output_dir(self._cfg.output_dir) if acct else self._cfg.output_dir)
 
     def _resolve_masters(self, team_id, game_id):
-        """Known prefixes first; watch-page fallback for any new path variant."""
+        """Where Trace listed the game first, then the known prefixes; watch-page
+        fallback for any new path variant."""
         return streams.resolve_masters(self._ctx.request, self._page, self._athlete,
-                                       team_id, game_id)
+                                       team_id, game_id, self._prefixes.get(game_id))
 
     def _athlete(self):
         """Discover the logged-in athlete id once (cached for the session)."""
@@ -697,11 +700,10 @@ class Worker:
             pass
 
     def _fetch_thumb(self, team_id, game_id):
-        """Poster bytes from Trace, trying each URL prefix (newer 'api', older
-        'us-east-2/soccer/api'), the one that last worked for this team first."""
-        cached = self._thumb_prefix.get(team_id)
-        order = ([cached] + [p for p in streams.PREFIXES if p != cached]
-                 if cached else streams.PREFIXES)
+        """Poster bytes from Trace, trying each URL prefix: where Trace listed this
+        game first, then the one that last worked for this team, then the rest."""
+        first = [p for p in (self._prefixes.get(game_id), self._thumb_prefix.get(team_id)) if p]
+        order = list(dict.fromkeys(first + streams.PREFIXES))
         for prefix in order:
             url = f"{BASE_URL}/{prefix}/teams/{team_id}/games/{game_id}/poster.jpg"
             try:

@@ -43,11 +43,12 @@ def test_scheduled_download_keeps_windows_awake_only_while_downloading(monkeypat
     from trace_grabber import main
     pt, calls = _record_execution_state(monkeypatch)
     during = []
-    def resolve(request, page, athlete_getter, team_id, game_id):
+    def resolve(request, page, athlete_getter, team_id, game_id, known):
         during.append(list(calls))
         return []
     monkeypatch.setattr(main.streams, "resolve_masters", resolve)
-    game = SimpleNamespace(id="demo-1", team_id="demo", date="2026-09-22", opponent="Rivals")
+    game = SimpleNamespace(id="demo-1", team_id="demo", date="2026-09-22", opponent="Rivals",
+                           prefix=None)
     cfg = SimpleNamespace(output_dir=tmp_path, combine_halves=False)
     main._download_game(SimpleNamespace(request=None), None, None, {}, cfg, _account(tmp_path), game)
     assert during == [[pt.ES_CONTINUOUS | pt.ES_SYSTEM_REQUIRED]]
@@ -123,7 +124,8 @@ def test_scheduled_download_uses_the_same_folders(monkeypatch, tmp_path):
     monkeypatch.setattr(main.streams, "resolve_masters", lambda *args: ["half1"])
     monkeypatch.setattr(main.quality, "pick_from_master", lambda text, url, quality: "variant")
     monkeypatch.setattr(main, "download", lambda url, dest, *args, **kwargs: saved.append(dest))
-    game = SimpleNamespace(id="demo-7", team_id="demo", date="2026-09-22", opponent="Rivals")
+    game = SimpleNamespace(id="demo-7", team_id="demo", date="2026-09-22", opponent="Rivals",
+                           prefix=None)
     cfg = SimpleNamespace(output_dir=tmp_path, combine_halves=False, quality="highest")
     main._download_game(SimpleNamespace(request=_Request()), None, None, {}, cfg, _account(tmp_path), game)
     assert saved == [tmp_path / "2026-09-22_vs-rivals" / "Full Game" / "2026-09-22_vs-rivals_half1.mp4"]
@@ -151,7 +153,8 @@ def test_scheduled_download_also_saves_the_games_stats(monkeypatch, tmp_path):
     monkeypatch.setattr(main.streams, "resolve_masters", lambda *args: ["half1", "half2"])
     monkeypatch.setattr(main.quality, "pick_from_master", lambda text, url, quality: "variant")
     monkeypatch.setattr(main, "download", lambda *args, **kwargs: None)
-    game = SimpleNamespace(id="demo-7", team_id="demo", date="2026-09-22", opponent="Rivals")
+    game = SimpleNamespace(id="demo-7", team_id="demo", date="2026-09-22", opponent="Rivals",
+                           prefix=None)
     cfg = SimpleNamespace(output_dir=tmp_path, combine_halves=False, quality="highest")
     ctx = SimpleNamespace(request=_Request())
     assert main._download_game(ctx, None, None, {}, cfg, _account(tmp_path), game) == 2

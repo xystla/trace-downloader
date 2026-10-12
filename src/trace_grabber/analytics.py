@@ -331,7 +331,7 @@ USERS_SELF_TOKEN_URL = "https://teams.traceup.com/webapp/users/self/token"
 
 TEAM_GAMES_Q = ("query teamGames($team_id: Int!, $token: UserToken!) { "
                 "teamGames(team_id: $team_id, token: $token) { "
-                "game_id status full_date approx_half_duration access { allowed } "
+                "game_id base_path status full_date approx_half_duration access { allowed } "
                 "home_team { team_id name title score } away_team { team_id name title score } } }")
 
 # The `moments` field takes its own required `hash_key` argument, in addition

@@ -34,7 +34,8 @@ def _make_athlete_getter(page, team_url):
 
 @keep_awake()
 def _download_game(ctx, page, athlete_getter, headers, cfg, acct, game) -> int:
-    masters = streams.resolve_masters(ctx.request, page, athlete_getter, game.team_id, game.id)
+    masters = streams.resolve_masters(ctx.request, page, athlete_getter, game.team_id, game.id,
+                                      game.prefix)
     out_base = game_folders(acct.output_dir(cfg.output_dir), game.date or game.id,
                             game.opponent).full_game
     saved = 0

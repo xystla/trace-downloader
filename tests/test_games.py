@@ -159,3 +159,23 @@ def test_scores_entered_on_trace_come_with_the_game_from_our_side(monkeypatch):
 def test_game_list_query_asks_for_scores():
     from trace_grabber.analytics import TEAM_GAMES_Q
     assert TEAM_GAMES_Q.count("score") == 2
+
+
+def test_a_game_carries_where_trace_keeps_its_video(monkeypatch):
+    # Trace serves a game from the region it was processed in and names that
+    # place in base_path. Asking for it is what lets a game in a region this
+    # app has never heard of (us-west-1, Oct 2026) download at all.
+    from trace_grabber import games, analytics
+    assert "base_path" in analytics.TEAM_GAMES_Q
+    monkeypatch.setattr(analytics, 'team_numeric_id', lambda *args: 5)
+    monkeypatch.setattr(analytics, 'user_token', lambda *args: {'token': 'fake'})
+    def row(number, base_path):
+        return {'game_id': number, 'full_date': '2026-10-10', 'status': 'ready',
+                'base_path': base_path,
+                'home_team': {'team_id': 5, 'title': 'Our team'},
+                'away_team': {'team_id': 8, 'title': 'Rivals'}}
+    monkeypatch.setattr(analytics, 'fetch_team_games', lambda *args: {
+        2: row(2, '/us-west-1/soccer/api/teams/demo/games/demo-2/'),
+        1: row(1, None)})
+    result = games._list_api_games(object(), 'https://go.traceup.com/traceid/team/demo', 60)
+    assert [(g.id, g.prefix) for g in result] == [('demo-2', 'us-west-1/soccer/api'), ('demo-1', None)]

@@ -42,3 +42,23 @@ def test_loading_the_game_list_keeps_windows_awake(monkeypatch, tmp_path):
     monkeypatch.setattr(worker, 'list_games', lambda page, url: during.append(list(calls)) or [])
     instance._list_games()
     assert during == [[pt.ES_CONTINUOUS | pt.ES_SYSTEM_REQUIRED]] and calls[-1] == pt.ES_CONTINUOUS
+
+
+def test_listing_remembers_where_each_games_video_is(monkeypatch, tmp_path):
+    from trace_grabber import paths, streams
+    monkeypatch.setattr(paths, 'data_dir', lambda: tmp_path)
+    from gui import worker
+    from trace_grabber.games import Game
+    instance = worker.Worker.__new__(worker.Worker)
+    account = SimpleNamespace(team_urls=['current'], label='My team',
+                              state_path=lambda root: tmp_path / 'state.json')
+    instance._accounts = SimpleNamespace(active=account)
+    instance._page = object()
+    instance._ctx = SimpleNamespace(request=object())
+    game = Game('demo-1', 'demo', '2026-10-10', 'Rivals', 'Demo vs. Rivals', prefix='us-west-1/soccer/api')
+    monkeypatch.setattr(worker, 'list_games', lambda page, url: [game])
+    instance._list_games()
+    asked = []
+    monkeypatch.setattr(streams, 'resolve_masters', lambda *args: asked.append(args[-1]) or ['half1'])
+    assert instance._resolve_masters('demo', 'demo-1') == ['half1']
+    assert asked == ['us-west-1/soccer/api']

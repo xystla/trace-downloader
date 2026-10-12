@@ -23,6 +23,7 @@ def _worker(monkeypatch, tmp_path, request):
     instance._cfg = SimpleNamespace(output_dir=tmp_path / "videos")
     instance._ctx = SimpleNamespace(request=request)
     instance._thumb_prefix = {}
+    instance._prefixes = {}
     return instance
 
 
@@ -106,3 +107,16 @@ def test_fetching_a_thumbnail_keeps_windows_awake(monkeypatch, tmp_path):
     instance._ctx.request.get = get
     assert instance._get_thumb("demo", "demo-7") == EXPECTED
     assert during[0] == [pt.ES_CONTINUOUS | pt.ES_SYSTEM_REQUIRED] and calls[-1] == pt.ES_CONTINUOUS
+
+
+def test_thumbnail_comes_from_the_games_own_place(monkeypatch, tmp_path):
+    # A game in a region outside the known list: its poster is only where Trace says.
+    class _OnlyThere(_Request):
+        def get(self, url, **kwargs):
+            self.calls.append(url)
+            return SimpleNamespace(ok="/us-west-1/soccer/api/" in url, body=lambda: b"jpeg-bytes")
+    request = _OnlyThere()
+    instance = _worker(monkeypatch, tmp_path, request)
+    assert instance._get_thumb("demo", "demo-7") is None
+    instance._prefixes = {"demo-7": "us-west-1/soccer/api"}
+    assert instance._get_thumb("demo", "demo-7") == EXPECTED
