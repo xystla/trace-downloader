@@ -615,7 +615,8 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-card h3 { display:flex; align-items:center; justify-content:space-between; }
 .ed-reset { margin:0; padding:3px 10px; font-size:12px; font-weight:500; }
 .ed-animate { margin-top:12px; }
-#edTimeline { position:relative; }
+/* A container, so the track and its marks can grow with the timeline's width. */
+#edTimeline { position:relative; container-type:inline-size; }
 .ed-tip { position:absolute; bottom:calc(100% + 6px); transform:translateX(-50%); z-index:5; pointer-events:none; white-space:nowrap;
   max-width:min(420px, 90%); overflow:hidden; text-overflow:ellipsis; padding:5px 9px; border-radius:8px; font-size:12.5px;
   background:var(--text); color:var(--bg); box-shadow:0 4px 14px rgba(0,0,0,.25); }
@@ -623,6 +624,18 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 /* With a game open the picker heads the side column, level with the video and as wide as the cards. */
 .ed-side > #edGame { width:100%; min-width:0; padding:10px 34px 10px 14px; }
 .ed-body { display:grid; grid-template-columns:minmax(0, 1fr) 340px; gap:16px; align-items:start; }
+/* With a game open the page widens with the window, and the video, buttons and timeline grow
+   together: up to where the video is as tall as fits with the rest still on screen below it. */
+#editor:has(#edBody:not([hidden])) { max-width:max(1080px, calc((100vh - 258px) * 16 / 9 + 400px)); }
+#editor:has(#edBody:not([hidden])):has(.ed-buttons.two-rows) { max-width:max(1080px, calc((100vh - 309px) * 16 / 9 + 400px)); }
+/* Focus: no sidebar and no settings, so the video and timeline have the whole screen to grow into. */
+#editor:not(:has(#edBody:not([hidden]))) #edFocus { display:none; }
+#edFocus { margin:0; padding:6px 12px; font-size:13px; }
+#edFocus.on { border-color:var(--accent-text); color:var(--accent-text); }
+body.ed-focus .sidebar, body.ed-focus .ed-side { display:none; }
+body.ed-focus .ed-body { grid-template-columns:minmax(0, 1fr); }
+body.ed-focus #editor:has(#edBody:not([hidden])) { max-width:max(724px, calc((100vh - 268px) * 16 / 9 + 44px)); }
+body.ed-focus #editor:has(#edBody:not([hidden])):has(.ed-buttons.two-rows) { max-width:max(724px, calc((100vh - 319px) * 16 / 9 + 44px)); }
 .ed-stage { display:flex; flex-direction:column; gap:12px; min-width:0; }
 /* Beside a long column of settings the video stays in view as the page scrolls. */
 @media (min-width:1181px) { .ed-stage { position:sticky; top:12px; } }
@@ -634,13 +647,30 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-side > #edGame { margin-bottom:0; }
 #edExposure + output, #edContrast + output, #edSaturation + output { min-width:30px; }
 #edFrame video { display:block; width:100%; height:auto; aspect-ratio:16 / 9; background:#000; object-fit:contain; }
-.ed-buttons { display:flex; flex-wrap:nowrap; gap:5px; }
-.ed-buttons button { flex:1 1 auto; min-width:0; padding:8px 6px; gap:5px; font-size:13px; white-space:nowrap; }
-.ed-buttons.two-rows { gap:8px; }
-.ed-buttons.two-rows button { padding:8px 12px; gap:8px; }
-.ed-buttons button > svg { flex:none; }
+/* The mark buttons: the clock's four in one joined strip, and a goal for each team. */
+.ed-buttons { display:flex; gap:10px; }
+.ed-buttons.two-rows { flex-direction:column; gap:8px; }
+.ed-group { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0, 1fr); min-width:0; }
+.ed-group.clock { flex:4 1 0; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--raised); overflow:hidden; }
+.ed-group.goals { flex:2 1 0; gap:8px; }
+.ed-buttons.two-rows .ed-group { flex:none; }
+.ed-buttons button { min-width:0; height:38px; padding:0 10px; gap:7px; font-size:13px; font-weight:550; white-space:nowrap; }
+.ed-buttons button > svg { flex:none; color:var(--muted); transition:color var(--ease); }
+.ed-buttons button:hover > svg { color:var(--accent-text); }
 .ed-buttons button > span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
-.ed-buttons.two-rows { display:grid; grid-template-columns:repeat(3, minmax(0, auto)); }
+.ed-group.clock button { border:0; border-radius:0; background:transparent; }
+.ed-group.clock button + button { box-shadow:-1px 0 0 var(--border-strong); }
+.ed-group.clock button:hover { background:var(--hover); }
+.ed-group.clock button:active { transform:none; background:var(--border-strong); }
+.ed-group.clock button:focus-visible { outline-offset:-2px; }
+.ed-group.goals button { height:40px; gap:10px; border-color:var(--border-strong); }
+/* The team's colour, ringed so that black and white kits show on either theme. */
+.ed-dot { flex:none; width:10px; height:10px; border-radius:50%; box-shadow:0 0 0 2px var(--raised), 0 0 0 3px var(--border-strong); }
+.ed-buttons button:hover .ed-dot { box-shadow:0 0 0 2px var(--hover), 0 0 0 3px var(--muted); }
+/* Just pressed: the mark was made. */
+.ed-buttons button.did { animation:ed-did .7s ease-out both; }
+.ed-buttons button.did > svg { color:var(--accent-text); }
+@keyframes ed-did { from { background-color:var(--accent-soft); color:var(--accent-text); } }
 .ed-side { display:flex; flex-direction:column; gap:12px; }
 .ed-card { padding:12px 14px 14px; }
 .ed-card h3 { margin:0 0 10px; }
@@ -663,12 +693,15 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-status p { margin:0 0 6px; font-size:13px; line-height:1.45; }
 .ed-status .warn { color:var(--warn); }
 .ed-status .ok { color:var(--text); font-weight:600; }
-#edTimeline .tl-track { height:40px; }
+#edTimeline .tl-track { height:clamp(40px, 5cqw, 60px); }
 .ed-cut { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(135deg, var(--border-strong) 0 4px, transparent 4px 8px); opacity:.55; }
-.tl-mark.ed { top:50%; width:4px; height:26px; border-radius:2px; border:0; background:var(--text); }
-.tl-mark.ed.goal { width:12px; height:12px; border-radius:50%; background:var(--accent); border:2px solid var(--raised); }
-.tl-mark.ed.edge { background:var(--accent-text); width:5px; height:34px; }
-.tl-mark.ref, .tl-mark.ref:hover { top:80%; width:9px; height:9px; opacity:.85; }   /* :hover too, or a bookmark would jump to its place on a game's page */
+.tl-mark.ed { top:50%; width:4px; height:65%; border-radius:2px; border:0; background:var(--text); }
+.tl-mark.ed.goal { width:clamp(12px, 1.3cqw, 18px); height:clamp(12px, 1.3cqw, 18px); border-radius:50%; background:var(--accent); border:2px solid var(--raised); }
+.tl-mark.ed.edge { background:var(--accent-text); width:5px; height:85%; }
+/* The edit's own marks can be dragged along the line. */
+.tl-mark.ed { cursor:ew-resize; touch-action:none; }
+.tl-mark.ed.dragging { transform:translate(-50%,-50%) scale(1.35); z-index:3; transition:none; }
+.tl-mark.ref, .tl-mark.ref:hover { top:80%; width:clamp(9px, 1cqw, 13px); height:clamp(9px, 1cqw, 13px); opacity:.85; }   /* :hover too, or a bookmark would jump to its place on a game's page */
 .ed-bug { position:absolute; pointer-events:none; }
 .ed-bug img { display:block; width:auto; height:100%; }
 .ed-bug span { position:absolute; transform:translate(-50%, -50%); font-family:"TraceDown Bug", sans-serif; line-height:1; white-space:nowrap; }
@@ -677,8 +710,16 @@ button.tl-chip:hover { border-color:var(--accent-text); color:var(--accent-text)
 .ed-export select { width:auto; margin:0; flex:1; }
 .ed-export .bar { height:6px; }
 .ed-export p { margin:0; font-size:13px; }
-.ed-now { margin:0; font-variant-numeric:tabular-nums; }
-#edTimeline .tl-track { cursor:pointer; }
+.ed-now { margin:0; font-variant-numeric:tabular-nums; flex:none; }
+/* The game's clock, and the button that guesses the marks, on one line above the timeline. */
+.ed-nowrow { display:flex; align-items:center; gap:10px; min-height:30px; }
+.ed-nowrow .caption { margin:0; }
+#edSuggestNote { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#edSuggestNote.warn { color:var(--warn); }
+#edSuggest { flex:none; margin:0; padding:5px 10px; gap:6px; font-size:12.5px; }
+#edSuggest .ic { width:14px; height:14px; color:var(--accent-text); }
+#edSuggest.ask { border-color:var(--warn); color:var(--warn); }
+#edTimeline .tl-track { cursor:pointer; touch-action:none; -webkit-user-select:none; user-select:none; }
 
 /* A mark's time: looks like text, is a button, becomes a box to type in. */
 button.ed-when { margin:0; padding:1px 4px; border:1px solid transparent; border-radius:6px; background:none; font:inherit; color:inherit;

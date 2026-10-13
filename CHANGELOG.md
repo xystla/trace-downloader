@@ -3,6 +3,15 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.6.0
+- Suggest marks: a new button above the Editor's timeline puts a first guess at where the game starts, where each break begins and ends, and where the game ends. It works from where Trace tracked the players (the field emptying for a break, everyone standing and then moving at a kick-off) and, where the referee's whistle can be heard in the saved video, puts the mark by the whistle. The guesses lean to the safe side, leaving a little standing about in sooner than cutting any play. Check each one and drag it into place; goals stay yours to mark. It can take a minute, and needs a game Trace has tracking for.
+- Drag a mark along the Editor's timeline to move it: the start and end bars, the breaks and the goals. The picture follows, to show the moment the mark is on.
+- Press and drag anywhere on the Editor's timeline to move through the game, instead of clicking from spot to spot. Hold Shift while dragging, the timeline or a mark, to move a tenth as fast and land on the exact moment.
+- Undo and redo for the marks: Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y); on a Mac the Command key works as well.
+- The Editor grows with the window: the video, the buttons and the timeline get bigger together, as far as fits on screen, and the timeline gets taller as it gets longer.
+- Fullscreen Editor: a button beside the Editor's heading (or the F key) fills the screen with the video, the buttons and the timeline, and puts the settings away until you press it again or Esc.
+- The Editor's mark buttons are redrawn: the game's clock (starts, break, resumes, ends) as one strip in the order it happens, each with its own icon, and a goal button for each team with that team's colour. A button shows for a moment that its mark was made.
+
 ## 1.5.4
 - Fixed some games showing a gray thumbnail and "Trace has no video for this game yet" even though they play on Trace. TraceDown now uses the place Trace itself lists for each game's video instead of trying a fixed set of places.
 - If a game's video still can't be found, TraceDown opens the game the way Trace's site does and reads where the video is from there.

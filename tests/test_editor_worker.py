@@ -205,3 +205,67 @@ def test_an_export_without_sound_is_asked_for_that_way(ed):
     ed.export_edit(*ed.args, "best")
     ed.export_edit(*ed.args, "best", sound=False)
     assert ed.sounds == [True, False]
+
+
+def _tracked(seconds, people, fps=2):
+    """A half's tracking file: `people(t)` says who is where at each moment."""
+    return {"setup": {"fps": fps}, "frm": [{"t": i * 100 // fps, "a": people(i / fps)} for i in range(seconds * fps)]}
+
+
+def _half(t):
+    """A half of 300 seconds' play: lined up for 20, playing, walking off for 10, then gone."""
+    import math
+    spot = lambda x, y: {"l": [round(x), round(y)]}
+    if t < 20:
+        return {str(p): spot(150 + 50 * p, 300 + 30 * (p % 5)) for p in range(14)}
+    if t < 320:
+        return {str(p): spot(500 + 300 * math.sin(t / 3 + p), 500 + 150 * math.sin(t / 2 + 2 * p)) for p in range(14)}
+    if t < 330:
+        return {str(p): spot(400 + 10 * p, 120 + 55 * p) for p in range(14)}
+    return {"90": spot(500, 20)}
+
+
+def monkeypatch_whistle(ed, heard):
+    ed.module.whistle.heard = heard
+
+
+@pytest.fixture
+def quiet(ed):
+    """Whatever a test does to the whistle listening is undone after it."""
+    kept = ed.module.whistle.heard
+    yield
+    ed.module.whistle.heard = kept
+
+
+def test_marks_are_suggested_from_each_halfs_tracking_timed_by_the_videos(ed, quiet):
+    _video(ed, "2026-09-22_vs-rivals_half1.mp4", "2026-09-22_vs-rivals_half2.mp4")       # 1500 seconds each
+    asked = []
+    def get(url, timeout=None):
+        asked.append(url)
+        return SimpleNamespace(ok=True, json=lambda: _tracked(400, _half))
+    ed._ctx = SimpleNamespace(request=SimpleNamespace(get=get))
+    ed._resolve_masters = lambda team, game_id: [f"https://t/api/teams/{team}/games/{game_id}/gamevideo{h}.hls/game_video.m3u8"
+                                                 for h in (1, 2)]
+    listened = []
+    def heard(path, start, seconds):
+        listened.append(Path(path).name)
+        # the second half's whistle for the end, 318 seconds into that file
+        return [(318.0, 319.5)] if "half2" in Path(path).name and start <= 318.0 <= start + seconds else []
+    monkeypatch_whistle(ed, heard)
+    found = ed._edit_suggest(*ed.args)
+    assert asked == [f"https://t/api/teams/demo/games/demo-7/radar{h}_dynamic.json" for h in (1, 2)]
+    assert [m["kind"] for m in found] == ["start", "break", "resume", "end"]
+    # The second half's marks are timed from the end of the first half's video, not of its tracking.
+    assert found[2]["t"] == found[0]["t"] + 1500.0
+    # Each stretch is listened to in the file it falls in, and a whistle there is put on the game's clock.
+    assert listened == ["2026-09-22_vs-rivals_half1.mp4"] * 2 + ["2026-09-22_vs-rivals_half2.mp4"] * 2
+    assert found[3]["t"] == 1500.0 + 319.5 + 1.0
+
+
+def test_no_marks_are_suggested_without_tracking_or_without_the_video(ed):
+    ed._ctx = SimpleNamespace(request=SimpleNamespace(get=lambda url, timeout=None: SimpleNamespace(ok=False)))
+    ed._resolve_masters = lambda team, game_id: ["https://t/api/teams/demo/games/demo-7/gamevideo1.hls/game_video.m3u8"]
+    with pytest.raises(RuntimeError, match="Download the full game first"):
+        ed._edit_suggest(*ed.args)
+    _video(ed, "2026-09-22_vs-rivals.mp4")
+    assert ed._edit_suggest(*ed.args) == []

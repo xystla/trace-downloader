@@ -561,12 +561,29 @@ function toggleFull(frame) {
   document.querySelectorAll(".player-frame.is-full").forEach((f) => f.classList.remove("is-full"));
   frame.classList.toggle("is-full", on);
   if (on) frame.focus();      // so the arrow keys skip through the video
-  setWindowFull(on);
+  setWindowFull(on || edFocus);
 }
 function leaveFull() {
+  const picture = document.querySelector(".player-frame.is-full");
   document.querySelectorAll(".player-frame.is-full").forEach((f) => f.classList.remove("is-full"));
   document.querySelectorAll(".ed-stage.has-full").forEach((stage) => stage.classList.remove("has-full"));
-  setWindowFull(false);
+  // One step back at a time: out of the full-screen picture first, then out of the Editor's focus.
+  if (!picture && edFocus) { setEdFocus(false); return; }
+  setWindowFull(edFocus);
+}
+
+// The Editor's focus: the window fills the screen and only the video, the mark
+// buttons and the timeline are left, as big as they fit. The settings are a step back out.
+let edFocus = false;
+function setEdFocus(on) {
+  if (edFocus === on) return;
+  edFocus = on;
+  document.body.classList.toggle("ed-focus", on);
+  const b = el("edFocus");
+  b.classList.toggle("on", on);
+  b.setAttribute("aria-pressed", String(on));
+  edPlacePicker();
+  if (!document.querySelector(".player-frame.is-full")) setWindowFull(on);
 }
 
 // The game whose page is showing and has something to play, else null.
@@ -611,6 +628,7 @@ document.addEventListener("keydown", (e) => {
   if (key === " " && tag === "BUTTON") return;      // space presses the focused button, as everywhere
   const action = PLAYER_KEYS[key];
   if (!action) return;
+  if (active.editor && key === "f") { e.preventDefault(); if (!e.repeat) setEdFocus(!edFocus); return; }
   if (active.editor && !EDITOR_KEYS.includes(key)) return;      // no bookmarks, clips or full screen in the Editor
   // Holding a key down repeats skipping and stepping, not a bookmark or full screen.
   if (e.repeat && !HELD_KEYS.includes(key)) { e.preventDefault(); return; }
@@ -2245,6 +2263,7 @@ function showView(name) {
   if (name === "analytics" && !analyticsLoaded) loadAnalytics();
   if (name === "downloads") showFreeSpace();
   if (name === "storage") loadStorage();
+  if (name !== "editor") setEdFocus(false);
   if (name === "editor") edShown();
   else if (!el("edVideo").paused) el("edVideo").pause();      // an edit left behind doesn't keep playing
 }
@@ -2902,6 +2921,8 @@ async function openEditor(id) {
   if (!(res && res.ok)) { ed.id = null; edListGames(); return; }
   Object.assign(ed, { id, project: res.project, segments: res.segments, problems: res.problems,
     sources: res.sources, duration: res.duration, layout: res.layout, score: res.score, current: -1 });
+  Object.assign(edHistory, { last: JSON.stringify(ed.project.marks), undo: [], redo: [] });
+  edSuggestSay("", "");
   edOfferLooks(res.fonts || [], res.sizes || [0.5, 2], res.designs || []);
   ed.usual = res.usual || null;
   edDrawLooks(res.looks || [], "");
@@ -2945,7 +2966,79 @@ function edSeek(t, then) {
 }
 
 // Keep the edit; the app answers with it tidied and with how its marks read.
+// ---- a first guess at the clock marks, worked out from Trace's player tracking ----
+const ED_CLOCK_KINDS = ["start", "break", "resume", "end"];
+const ED_SUGGEST_ASK_MS = 5000;
+let edSuggesting = false, edSuggestAsked = 0, edSuggestAsking = null;
+// What the button says, and the line beside it ("" for the button's usual words).
+function edSuggestSay(button, note, warn) {
+  clearTimeout(edSuggestAsking);
+  el("edSuggest").querySelector("span").textContent = button || "Suggest marks";
+  el("edSuggest").classList.toggle("ask", button === "Replace your marks?");
+  el("edSuggest").disabled = edSuggesting;
+  el("edSuggestNote").textContent = note;
+  el("edSuggestNote").title = note;
+  el("edSuggestNote").classList.toggle("warn", !!warn);
+}
+async function edSuggest() {
+  if (edSuggesting || !ed.id) return;
+  const id = ed.id;
+  // Marks already made by hand are only replaced on a second press.
+  if (ed.project.marks.some((m) => ED_CLOCK_KINDS.includes(m.kind)) && Date.now() - edSuggestAsked > ED_SUGGEST_ASK_MS) {
+    edSuggestAsked = Date.now();
+    edSuggestSay("Replace your marks?", "The start, breaks and end you have marked would be replaced.");
+    edSuggestAsking = setTimeout(() => { if (!edSuggesting) edSuggestSay("", ""); }, ED_SUGGEST_ASK_MS);
+    return;
+  }
+  edSuggestAsked = 0;
+  edSuggesting = true;
+  edSuggestSay("Working it out…", "Reading where the players were. This can take a minute.");
+  let res;
+  try { res = await api().edit_suggest(id); } catch (e) { res = { ok: false, error: String(e) }; }
+  edSuggesting = false;
+  if (ed.id !== id) { edSuggestSay("", ""); return; }      // another game was opened meanwhile
+  if (!(res && res.ok)) { edSuggestSay("", (res && res.error) || "The marks couldn't be worked out.", true); return; }
+  const guessed = res.marks.map((m) => ({ id: Math.random().toString(16).slice(2, 10), kind: m.kind, t: m.t }));
+  ed.project.marks = [...ed.project.marks.filter((m) => !ED_CLOCK_KINDS.includes(m.kind)), ...guessed];
+  edSuggestSay("", "A first guess: check each mark and drag it into place. Ctrl+Z takes them off.");
+  edSave();
+}
+el("edSuggest").onclick = edSuggest;
+
+// Undo and redo for the marks: what they were before each change, for as long as
+// this game stays open. 'last' is the marks as they were last saved.
+const edHistory = { last: "[]", undo: [], redo: [] };
+const ED_UNDO_STEPS = 200;
+function edStep(from, to, word) {
+  if (!ed.id || !from.length) return;
+  to.push(JSON.stringify(ed.project.marks));
+  edHistory.last = from.pop();
+  ed.project.marks = JSON.parse(edHistory.last);
+  flash(el("edFrame"), word);
+  edSave();
+}
+const edUndo = () => edStep(edHistory.undo, edHistory.redo, "Undone");
+const edRedo = () => edStep(edHistory.redo, edHistory.undo, "Redone");
+document.addEventListener("keydown", (e) => {
+  const key = e.key.toLowerCase();
+  if (!(e.metaKey || e.ctrlKey) || e.altKey || (key !== "z" && key !== "y")) return;
+  if (el("editor").hidden || !ed.id || document.querySelector("dialog[open]")) return;
+  const tag = e.target.tagName;
+  // In a box being typed in, undo is for the typing.
+  if (tag === "TEXTAREA" || (tag === "INPUT" && !["range", "color", "checkbox"].includes(e.target.type))) return;
+  e.preventDefault();
+  if (key === "y" || e.shiftKey) edRedo(); else edUndo();
+});
+
 async function edSave() {
+  // Every change to the marks comes through here: keep what they were, to go back to.
+  const marks = JSON.stringify(ed.project.marks);
+  if (marks !== edHistory.last) {
+    edHistory.undo.push(edHistory.last);
+    if (edHistory.undo.length > ED_UNDO_STEPS) edHistory.undo.shift();
+    edHistory.redo.length = 0;
+    edHistory.last = marks;
+  }
   let res;
   try { res = await api().edit_save(ed.id, ed.project); } catch (e) { res = { ok: false, error: String(e) }; }
   if (!(res && res.ok)) {
@@ -2954,7 +3047,9 @@ async function edSave() {
     return;
   }
   el("edError").hidden = true;
+  const sent = JSON.stringify(ed.project.marks) === edHistory.last;
   Object.assign(ed, { project: res.project, segments: res.segments, problems: res.problems, layout: res.layout || ed.layout });
+  if (sent) edHistory.last = JSON.stringify(ed.project.marks);      // as the app tidied them, so only a real change counts as one
   edRender();
 }
 
@@ -2962,10 +3057,16 @@ async function edSave() {
 // In a narrow window the column drops below everything, so the picker stays up top.
 const edStacked = window.matchMedia("(max-width:1180px)");
 function edPlacePicker() {
-  const beside = !el("edBody").hidden && !edStacked.matches;
+  const beside = !el("edBody").hidden && !edStacked.matches && !edFocus;
   if (beside) el("edSide").prepend(el("edGame")); else el("edHead").append(el("edGame"));
 }
 edStacked.addEventListener("change", edPlacePicker);
+{
+  const b = labelButton("full", "Fullscreen Editor", "Fill the screen with the video and timeline (F)", () => setEdFocus(!edFocus));
+  b.id = "edFocus";
+  b.setAttribute("aria-pressed", "false");
+  el("edGame").before(b);
+}
 
 // Redraw everything that shows the edit. The parts are added by the sections below.
 const edParts = [];
@@ -3215,19 +3316,39 @@ function edAddMark(kind) {
   const only = kind === "start" || kind === "end" ? marks.find((m) => m.kind === kind) : null;
   if (only) only.t = t;                      // a game has one start and one end: marking again moves it
   else marks.push({ id: Math.random().toString(16).slice(2, 10), kind, t });
+  edMarked = { kind, at: Date.now() };
   edSave();
 }
 
+// The button last pressed and when, so it can say "marked" for a moment: the
+// buttons are drawn again as soon as the mark is saved.
+let edMarked = { kind: null, at: 0 };
+const ED_MARKED_MS = 700;
+const ED_BUTTON_ICONS = { start: "play", break: "pause", resume: "resume", end: "stop" };
 function edDrawButtons() {
-  // All six share one row when their words fit, and two rows of three when they don't.
-  el("edButtons").replaceChildren(...["start", "break", "resume", "goal_home", "goal_away", "end"].map((kind) => {
+  // The game's clock is one joined strip, in the order it happens, with a goal for each team
+  // beside it. They share one row when their words fit, and take a row each when they don't.
+  const button = (kind) => {
     const b = node("button");
-    b.innerHTML = icon(kind.startsWith("goal") ? "check" : kind === "break" ? "pause" : "play");
+    if (kind.startsWith("goal")) {
+      const dot = node("i", "ed-dot");
+      dot.style.background = ed.project[kind === "goal_home" ? "home" : "away"].color;
+      b.append(dot);
+    } else {
+      b.innerHTML = icon(ED_BUTTON_ICONS[kind]);
+    }
     b.append(node("span", "", edLabel(kind)));
     b.title = `${edLabel(kind)}: mark this at the moment the video is showing.`;
     b.onclick = () => edAddMark(kind);
+    const since = Date.now() - edMarked.at;
+    if (edMarked.kind === kind && since < ED_MARKED_MS) {
+      b.classList.add("did");
+      b.style.animationDelay = -since + "ms";      // carry on from where the last drawing of it had got to
+    }
     return b;
-  }));
+  };
+  const group = (cls, kinds) => { const g = node("div", "ed-group " + cls); g.append(...kinds.map(button)); return g; };
+  el("edButtons").replaceChildren(group("clock", ["start", "break", "resume", "end"]), group("goals", ["goal_home", "goal_away"]));
   edFitButtons();
 }
 
@@ -3327,6 +3448,7 @@ async function edLoadReference() {
   edDrawTimeline();
 }
 
+const ED_SLOW = 0.1;      // how much of the pointer's movement a drag follows while Shift is held
 function edDrawTimeline() {
   const track = node("div", "tl-track");
   const at = (t) => Math.min(100, (t / (ed.duration || 1)) * 100) + "%";
@@ -3341,11 +3463,54 @@ function edDrawTimeline() {
     cut.style.width = Math.max(0, ((b - a) / (ed.duration || 1)) * 100) + "%";
     track.append(cut);
   }
-  const mark = (t, cls, text) => {
+  // 'own' is the edit's own mark, when it is one: those can be dragged along the line.
+  const mark = (t, cls, text, own) => {
     const b = node("button", "tl-mark " + cls);
     b.style.left = at(t);
     b.setAttribute("aria-label", text);
-    b.onclick = () => edSeek(t);
+    let dragged = false;
+    b.onclick = () => { if (dragged) dragged = false; else edSeek(own ? own.t : t); };
+    if (own) b.onpointerdown = (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      dragged = false;
+      const from = e.clientX;
+      let waiting = false, last = from, x = null;
+      const to = (ev) => {
+        if (!dragged && Math.abs(ev.clientX - from) < 4) return;      // a click with a shaky hand is still a click
+        dragged = true;
+        b.classList.add("dragging");
+        const box = el("edTimeline").querySelector(".tl-track").getBoundingClientRect();
+        // The mark goes as far as the pointer does, from where it was; a tenth as far with Shift held.
+        if (x == null) x = box.left + (own.t / (ed.duration || 1)) * box.width;
+        x = Math.max(box.left, Math.min(box.right, x + (ev.clientX - last) * (ev.shiftKey ? ED_SLOW : 1)));
+        last = ev.clientX;
+        own.t = Math.round(((x - box.left) / box.width) * ed.duration * 1000) / 1000;
+        b.style.left = at(own.t);
+        text = `${edLabel(own.kind)} · ${clock(own.t)}`;
+        b.setAttribute("aria-label", text);
+        say();
+        // The picture and the line follow, to show the moment the mark is being put on.
+        edScrub = own.t;
+        edMoveHead();
+        if (waiting) return;
+        waiting = true;
+        setTimeout(() => { waiting = false; if (edScrub != null) edSeek(edScrub); }, 30);
+      };
+      const done = () => {
+        window.removeEventListener("pointermove", to);
+        window.removeEventListener("pointerup", done);
+        window.removeEventListener("pointercancel", done);
+        if (!dragged) return;
+        b.classList.remove("dragging");
+        edScrub = null;
+        edSeek(own.t);
+        edSave();
+      };
+      window.addEventListener("pointermove", to);
+      window.addEventListener("pointerup", done);
+      window.addEventListener("pointercancel", done);
+    };
     // Say what the mark is as soon as the pointer is on it (the system's own
     // tooltip is slow, and missing altogether in some of the app's windows).
     const say = () => {
@@ -3363,15 +3528,40 @@ function edDrawTimeline() {
   tip.hidden = true;
   if (edReference.id === ed.id) edReference.marks.forEach((m) => mark(m.t, "ref " + m.cls, m.text));
   ed.project.marks.forEach((m) => mark(m.t, "ed " + (m.kind.startsWith("goal") ? "goal"
-    : m.kind === "start" || m.kind === "end" ? "edge" : ""), `${edLabel(m.kind)} · ${clock(m.t)}`));
+    : m.kind === "start" || m.kind === "end" ? "edge" : ""), `${edLabel(m.kind)} · ${clock(m.t)}`, m));
   const head = node("div", "tl-playhead");
   head.hidden = false;
   track.append(head);
   // The video's own bar only covers the file that is playing; this line is the whole game.
-  track.onclick = (e) => {
-    if (e.target.closest(".tl-mark")) return;
-    const box = track.getBoundingClientRect();
-    edSeek(((e.clientX - box.left) / box.width) * ed.duration);
+  // Press anywhere on it to go there, and keep the button down to drag through the game.
+  track.onpointerdown = (e) => {
+    if (e.button !== 0 || e.target.closest(".tl-mark")) return;
+    e.preventDefault();      // no text gets selected along the way
+    let waiting = false, last = e.clientX, x = e.clientX;
+    const to = (ev) => {
+      // The line is redrawn when the edit changes: measure the one that is there now.
+      const box = el("edTimeline").querySelector(".tl-track").getBoundingClientRect();
+      // As far as the pointer goes; a tenth as far with Shift held, to find the exact moment.
+      x = Math.max(box.left, Math.min(box.right, x + (ev.clientX - last) * (ev.shiftKey ? ED_SLOW : 1)));
+      last = ev.clientX;
+      edScrub = ((x - box.left) / box.width) * ed.duration;
+      edMoveHead();      // the line keeps up with the pointer even when the picture is a step behind
+      if (waiting) return;
+      waiting = true;
+      setTimeout(() => { waiting = false; if (edScrub != null) edSeek(edScrub); }, 30);      // the picture follows, a few times a second at most
+    };
+    const done = () => {
+      window.removeEventListener("pointermove", to);
+      window.removeEventListener("pointerup", done);
+      window.removeEventListener("pointercancel", done);
+      const t = edScrub;
+      edScrub = null;
+      if (t != null) edSeek(t);
+    };
+    window.addEventListener("pointermove", to);
+    window.addEventListener("pointerup", done);
+    window.addEventListener("pointercancel", done);
+    to(e);
   };
   el("edTimeline").replaceChildren(track, tip);
   const key = (cls, text) => { const item = node("span"); item.append(node("i", "tl-key " + cls), text); return item; };
@@ -3382,10 +3572,13 @@ function edDrawTimeline() {
   edMoveHead();
 }
 
+// Where the pointer has dragged to on the timeline, while it is being dragged; else null.
+let edScrub = null;
 function edMoveHead() {
+  const now = edScrub != null ? edScrub : edClock();
   const head = el("edTimeline").querySelector(".tl-playhead");
-  if (head) { head.style.display = "block"; head.style.left = Math.min(100, (edClock() / (ed.duration || 1)) * 100) + "%"; }
-  el("edNow").textContent = `${clock(edClock())} / ${clock(ed.duration)}`;      // the game's own clock, both halves joined
+  if (head) { head.style.display = "block"; head.style.left = Math.min(100, (now / (ed.duration || 1)) * 100) + "%"; }
+  el("edNow").textContent = `${clock(now)} / ${clock(ed.duration)}`;      // the game's own clock, both halves joined
 }
 
 edParts.push(edDrawButtons, edDrawMarks, edDrawStatus, edDrawTimeline,

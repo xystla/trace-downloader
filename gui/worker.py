@@ -13,7 +13,7 @@ from trace_grabber.config import load_config
 from trace_grabber import accounts as accts_mod
 from trace_grabber import analytics_sync
 from trace_grabber import bookmarks as bookmark_store
-from trace_grabber import analytics, edit, export, found, highlights, library, pieces, radar, recaps, segments, space
+from trace_grabber import analytics, edit, export, found, highlights, library, pieces, radar, recaps, segments, space, suggest, whistle
 from trace_grabber.analytics_sync import AnalyticsResult
 from trace_grabber import paths, platform_tasks
 from trace_grabber.platform_tasks import keep_awake
@@ -378,6 +378,40 @@ class Worker:
             project["crests"][which] = project["crests"][which] and edit.crest_path(root, which).is_file()
         return {"project": project, "files": files, "durations": [info["duration"] for info in infos],
                 "height": infos[0]["height"]}
+
+    def edit_suggest(self, game_id, date, opponent):
+        return self.submit(lambda: self._edit_suggest(game_id, date, opponent))
+
+    @keep_awake()
+    def _edit_suggest(self, game_id, date, opponent):
+        """A first guess at the game's clock marks (start, breaks, restarts, end)
+        from Trace's player tracking files (tens of MB a half), settled by the
+        referee's whistle where the saved video lets one be heard. [] when Trace
+        has no tracking for the game, or it shows too little to go on."""
+        files = self._edit_files(game_id, date, opponent)
+        infos = [export.video_info(f) for f in files]
+        lengths = [info["duration"] for info in infos]
+
+        def heard(start, seconds):
+            """The whistles in a stretch of the game, in the file most of it falls in."""
+            at = 0.0
+            for path, info in zip(files, infos):
+                if start + seconds / 2 < at + info["duration"] or path == files[-1]:
+                    try:
+                        found = whistle.heard(path, start - at, seconds) if info["audio"] else None
+                    except Exception:
+                        LOG.exception("listening for whistles failed")
+                        found = None
+                    return None if found is None else [(a + at, b + at) for a, b in found]
+                at += info["duration"]
+        team = game_id.rpartition("-")[0]
+        halves = []
+        for half, master in enumerate(self._resolve_masters(team, game_id), 1):
+            resp = self._ctx.request.get(radar.radar_url(master, half), timeout=180000)
+            if not resp.ok:
+                break                   # a later half can't be timed without the ones before it
+            halves.append(resp.json())
+        return suggest.from_tracking(halves, lengths[0] if len(lengths) > 1 else None, sum(lengths), heard)
 
     def edit_save(self, game_id, date, opponent, project):
         kept = edit.save(self._folders(game_id, date, opponent).root, project)

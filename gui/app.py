@@ -423,6 +423,16 @@ class Api:
         """Where the page puts the bug and its clock, for these teams and this look."""
         return scorebug.layout(1.0, project["home"], project["away"], project.get("bug"), project.get("crests"))
 
+    def edit_suggest(self, game_id):
+        """A first guess at where the game starts, breaks, restarts and ends, for
+        the Editor to put on its timeline. Nothing is saved here."""
+        found, error = self._for_game(game_id, lambda g: self._w().edit_suggest(g.id, g.date, g.opponent))
+        if error:
+            return {"ok": False, "error": f"Couldn't work out the marks: {error}"}
+        if not found:
+            return {"ok": False, "error": "Trace has no player tracking to go on for this game."}
+        return {"ok": True, "marks": found}
+
     def edit_save(self, game_id, project):
         """Keep the edit; answers with it as kept and with what is wrong with its marks."""
         kept, error = self._for_game(game_id, lambda g: self._w().edit_save(g.id, g.date, g.opponent, project))

@@ -1340,3 +1340,21 @@ def test_an_export_can_be_started_without_sound(editor):
     assert editor.export_start("t-1", "best", False) == {"ok": True}
     assert editor.export_start("t-1")["ok"] is True
     assert asked == [False, True]
+
+
+def test_suggested_marks_come_back_for_the_page_to_put_on_its_timeline(editor):
+    guess = [{"kind": "start", "t": 100.0}, {"kind": "end", "t": 2900.0}]
+    editor._worker.edit_suggest = lambda game_id, date, opponent: editor.asked.append(("suggest", game_id)) or guess
+    assert editor.edit_suggest("t-1") == {"ok": True, "marks": guess}
+    assert editor.asked == [("suggest", "t-1")]          # nothing is saved by guessing
+
+
+def test_suggesting_marks_says_why_when_there_is_nothing_to_go_on(editor):
+    editor._worker.edit_suggest = lambda *args: []
+    assert editor.edit_suggest("t-1") == {"ok": False, "error": "Trace has no player tracking to go on for this game."}
+    def failed(*args):
+        raise RuntimeError("Download the full game first: the editor works on the saved video.")
+    editor._worker.edit_suggest = failed
+    assert editor.edit_suggest("t-1") == {
+        "ok": False, "error": "Couldn't work out the marks: Download the full game first: the editor works on the saved video."}
+    assert editor.edit_suggest("nope")["error"] == "Couldn't work out the marks: game not found"
