@@ -211,6 +211,11 @@ button.done { color:var(--accent-text); }
 .hl-panel h3 { margin:0; }
 .hl-panel .hl-sub { margin-top:6px; }
 .hl-panel .caption { margin:0; }
+/* While the player list is being fetched: a block big enough to be seen, where the list will be. */
+.hl-loading { margin-top:8px; padding:16px 18px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--raised); }
+.hl-loading-title { font-size:15px; font-weight:650; margin-bottom:4px; }
+.hl-loading .mini { height:4px; margin-top:12px; background:var(--card); }
+.hl-panel .hl-skeleton { height:54px; border-radius:var(--radius-sm); opacity:.6; }
 .hl-row { display:flex; align-items:center; gap:10px; background:var(--raised); border-radius:var(--radius-sm);
   padding:8px 10px; min-width:0; }
 .hl-panel .row { flex-wrap:wrap; }
@@ -220,6 +225,7 @@ button.done { color:var(--accent-text); }
 .hl-row .bar { margin-top:6px; height:5px; background:var(--card); }
 .hl-overall { flex:none; height:6px; }
 .hl-panel.is-running .hl-row button { opacity:.45; pointer-events:none; }
+.hl-row.is-saved .hl-title { color:var(--accent-text); }
 .hl-row.is-off { background:transparent; border:1px dashed var(--border); }
 .hl-row.is-off .hl-title { color:var(--muted); font-weight:500; }
 .hl-text { flex:1; min-width:0; }

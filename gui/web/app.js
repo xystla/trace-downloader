@@ -187,6 +187,8 @@ function renderGames(games) {
   games.forEach((g) => { if (g.partial != null) partial.set(g.id, g.partial); });
   clipCount.clear();
   games.forEach((g) => { if (g.clips) clipCount.set(g.id, g.clips); });
+  recapCount.clear();
+  games.forEach((g) => { if (g.recaps) recapCount.set(g.id, g.recaps); });
   el("gameTools").hidden = games.length === 0;
   renderSeasonSummary();
   renderGameList();
@@ -1394,7 +1396,39 @@ function setNote(id, text, info) {
 
 // ---- the three things a game offers: Game (video), Highlights, Player Recaps ----
 const clipCount = new Map();           // id -> team highlight clips already cut
+const recapCount = new Map();          // id -> player recaps already saved
+// More recaps were saved for a game: its Player Recaps button says so at once.
+function recapsSaved(id, more) {
+  if (!more) return;
+  recapCount.set(id, (recapCount.get(id) || 0) + more);
+  document.querySelectorAll("button[data-recaps]").forEach((b) => { if (b.dataset.recaps === id) recapsMark(b, id); });
+}
+function recapsMark(b, id) {
+  const count = recapCount.get(id) || 0;
+  b.classList.toggle("done", count > 0);
+  b.title = count ? `${count} player recap${count === 1 ? "" : "s"} saved. Click to play them or download more.`
+    : "Choose which players' recaps to download.";
+}
 const highlightsRunning = new Set();   // ids whose team clips are being made right now
+// How far each of those has got, to put back on its card when the card is drawn
+// again (coming back from a game's page, or sorting the list): id -> [words, fraction].
+const highlightsProgress = new Map();
+function highlightsShown(id, text, fraction) {
+  highlightsProgress.set(id, [text, fraction]);
+  setNote(id, text, true);
+  setMini(id, fraction);
+}
+// Called as a card's buttons are drawn; the card may not be on the page yet.
+function highlightsRestore(g, id) {
+  if (!highlightsRunning.has(id) || !highlightsProgress.has(id)) return;
+  const [text, fraction] = highlightsProgress.get(id);
+  const note = g.querySelector(".err"), mini = g.querySelector(".mini");
+  note.classList.add("info");
+  note.textContent = text;
+  mini.hidden = false;
+  mini.classList.toggle("sliding", fraction === null);
+  mini.firstChild.style.width = fraction === null ? "" : Math.max(3, fraction * 100) + "%";
+}
 const recapsRunning = new Map();       // id -> latest step text while "Download all" runs
 
 function highlightsButton(id) {
@@ -1420,13 +1454,20 @@ function highlightsButton(id) {
 function recapsButton(g, id) {
   // The list needs room, so from the card and list layouts it opens on the
   // game's own page; there, the button shows and hides it.
-  return labelButton("user", "Player Recaps", "Choose which players' recaps to download.", () => {
+  const b = labelButton("user", "Player Recaps", "", () => {
     if (layout === "single") { toggleRecaps(g, id); return; }
     openSingle(id);
     const card = el("g-" + id);
     if (!card) return;
-    toggleRecaps(card, id).then(() => card.querySelector(".hl-panel").scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    // Straight to the list, while it is still loading: the wait is seen, not wondered about.
+    const show = () => card.querySelector(".hl-panel").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const loaded = toggleRecaps(card, id);
+    show();
+    loaded.then(show);
   });
+  b.dataset.recaps = id;
+  recapsMark(b, id);          // green once any of the game's recaps are saved, like Highlights
+  return b;
 }
 
 // Not downloaded (or cancelled): Game, Highlights, Player Recaps.
@@ -1448,6 +1489,7 @@ function setIdle(g, id) {
     buttons.push(labelButton("x", "Discard", "Delete what was downloaded of this game so far.", () => discardDownload(id)));
   }
   g.querySelector(".action").replaceChildren(...buttons, folder, highlightsButton(id), recapsButton(g, id));
+  highlightsRestore(g, id);
 }
 
 function setBusy(g) {
@@ -1490,7 +1532,7 @@ function setSaved(g, id) {
   g.querySelector(".action").replaceChildren(
     done("play", "Watch Game", "The game is saved. Click to play it.", () => run((gameId) => api().play_game(gameId))),
     pair, highlightsButton(id), recapsButton(g, id));
-  if (highlightsRunning.has(id)) { setNote(id, "Cutting team highlights…", true); setMini(id, null); }
+  highlightsRestore(g, id);
   attachPlayer(g, id);
 }
 
@@ -1541,11 +1583,11 @@ async function runHighlights(id) {
       const hadGame = gameState.get(id) === "saved";
       highlightsRunning.add(id);
       redrawButtons(id);
-      setNote(id, hadGame ? "Cutting team highlights…" : "Getting highlight clips from Trace…", true);
-      setMini(id, null);
+      highlightsShown(id, hadGame ? "Cutting team highlights…" : "Getting highlight clips from Trace…", null);
       let res;
       try { res = await api().download_highlights(id); } catch (e) { res = { ok: false, error: String(e) }; }
       highlightsRunning.delete(id);
+      highlightsProgress.delete(id);
       const ok = !!(res && res.ok);
       if (ok) clipCount.set(id, res.count);
       redrawButtons(id);
@@ -1568,10 +1610,49 @@ async function toggleRecaps(g, id) {
 }
 
 async function loadRecaps(panel, id, note) {
-  panel.replaceChildren(node("div", "caption", "Loading player recaps…"));
+  // Asking Trace about every player takes several seconds: say so where the list will be.
+  const head = node("div", "row");
+  head.append(node("h3", null, "Player recaps"));
+  const waiting = node("div", "hl-loading");
+  waiting.setAttribute("role", "status");
+  const sliding = node("div", "mini sliding");
+  sliding.append(node("i"));
+  // TraceDown asks Trace one thing at a time, so behind a download the list has to wait its turn.
+  const behind = autoBusy || jobs.some((j) => j.state === "running");
+  waiting.append(node("div", "hl-loading-title", behind ? "Waiting for the download to finish…" : "Loading player recaps…"),
+    node("div", "hl-detail", behind
+      ? "The list of players comes from Trace, and TraceDown asks Trace for one thing at a time. It loads by itself as soon as what is downloading now is done."
+      : "Asking Trace which players have a recap for this game. This takes a few seconds."), sliding);
+  const rows = node("div", "hl-players");
+  for (let i = 0; i < 4; i++) rows.append(node("div", "skeleton hl-skeleton"));
+  panel.replaceChildren(head, waiting, rows);
   let res;
   try { res = await api().list_highlights(id); } catch (e) { res = { ok: false, error: String(e) }; }
   renderRecaps(panel, id, res, note);
+}
+
+// Play a saved recap in the game's player. The player is made first if nothing
+// was saved when the page opened, and told of recaps saved since it was made.
+async function playRecap(id, p) {
+  const card = el("g-" + id);
+  if (!card) return;
+  if (!card._player) await attachPlayer(card, id);
+  const player = card._player;
+  if (!player) return;
+  const place = () => player.sources.findIndex((s) => s.group === "Player recaps" && s.label === p.label);
+  if (place() < 0) {
+    let media = null;
+    try { media = await api().game_media(id); } catch (e) { /* nothing new to add */ }
+    if (card._player !== player) return;        // the page moved on while asking
+    ((media && media.recaps) || []).forEach((r) => {
+      if (!player.sources.some((s) => s.group === "Player recaps" && s.label === r.label)) {
+        player.addSource({ group: "Player recaps", label: r.label, url: r.url });
+      }
+    });
+  }
+  if (place() < 0) return;
+  player.show(place(), () => player.video.play().catch(() => {}));
+  card.querySelector(".player").scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 // One row: a label, a line of detail, and an action that swaps to "Saved" when done.
@@ -1591,7 +1672,14 @@ function recapRow(id, p, error) {
   text.append(node("div", "hl-title", who), note, bar);
   const action = node("div", "action");
   row.append(text, action);
-  if (p.saved) { action.append(savedLabel("Saved")); return row; }
+  if (p.saved) {
+    // A saved recap is told by its name, in green, and plays here.
+    row.classList.add("is-saved");
+    const play = labelButton("play", "Play", "Play this recap in the game's player.", () => playRecap(id, p));
+    play.classList.add("done");
+    action.append(play);
+    return row;
+  }
   if (none) return row;
   const key = `recap:${id}:${p.user_id}`;
   const job = findJob(key);
@@ -1617,6 +1705,7 @@ function recapRow(id, p, error) {
         try { res = await api().download_recap(id, p.user_id); } catch (e) { res = { ok: false, error: String(e) }; }
         const ok = !!(res && res.ok);
         const problem = ok ? "" : (res && res.error) || "That didn't work.";
+        if (ok && !p.saved) recapsSaved(id, 1);
         if (ok) p.saved = true;
         // The row is drawn from the line, and this one is still marked as running.
         setTimeout(() => redraw(problem), 0);
@@ -1659,7 +1748,7 @@ function renderRecaps(panel, id, res, note) {
     head.append(labelButton("download", `Download all ${todo}`,
       "Download every recap not saved yet (about 100 MB or more each).", () => downloadAllRecaps(id)));
   }
-  head.append(iconButton("folder", "Show this game's Player Highlights folder", async () => {
+  head.append(labelButton("folder", "Open Folder", "Show this game's Player Highlights folder.", async () => {
     const shown = await api().reveal_highlights(id, "recaps");
     if (!(shown && shown.ok)) status.textContent = (shown && shown.error) || "";
   }));
@@ -1668,12 +1757,14 @@ function renderRecaps(panel, id, res, note) {
     panel.append(node("div", "hl-detail warn", "Couldn't load the player list. " + (res.error || "")));
     return;
   }
-  if (res.players.length === 0) {
+  // Only the players with a recap for this game: one saved already, or one Trace has to download.
+  const players = res.players.filter((p) => p.saved || p.seconds !== 0);
+  if (players.length === 0) {
     panel.append(node("div", "hl-detail", "Trace has no player recaps for this game."));
     return;
   }
   const grid = node("div", "hl-players");
-  res.players.forEach((p) => grid.append(recapRow(id, p)));
+  players.forEach((p) => grid.append(recapRow(id, p)));
   panel.append(grid);
 }
 
@@ -1698,13 +1789,19 @@ function downloadAllRecaps(id) {
 function onRecapsEvent(p) {
   if (p.text) recapsRunning.set(p.id, p.text);
   if (p.text) jobProgress("recaps:" + p.id, undefined, p.text);
+  // One of "Download all" was saved: count it, and draw its row as a saved one.
+  const listed = p.saved_user != null && recapLists.get(p.id) && recapLists.get(p.id).ok
+    ? recapLists.get(p.id).players.find((x) => x.user_id === p.saved_user) : null;
+  if (p.saved_user != null && !(listed && listed.saved)) recapsSaved(p.id, 1);
+  if (listed) listed.saved = true;
   const card = el("g-" + p.id);
   if (!card) return;
   const panel = card.querySelector(".hl-panel");
   const status = panel.querySelector(".hl-status");
   if (p.text && status) status.textContent = p.text;
   const row = p.saved_user != null && panel.querySelector(`.hl-row[data-user="${p.saved_user}"]`);
-  if (row) {
+  if (row && listed) row.replaceWith(recapRow(p.id, listed));
+  else if (row) {
     row.querySelector(".action").replaceChildren(savedLabel("Saved"));
     row.querySelector(".bar").hidden = true;
   }
@@ -2051,6 +2148,8 @@ function jobRow(job) {
     made.action.append(up, down, labelButton("x", "Remove", "Take this out of the line.", () => dequeue(job.key)));
   } else if (job.state === "done") {
     made.action.append(savedLabel("Saved"));
+  } else if (job.auto) {
+    // Nothing to retry by hand: the next automatic check tries it again.
   } else if (job.kind === "Full Game" && partial.has(job.id)) {
     made.action.append(
       labelButton("retry", "Resume", "Carry on from what is already downloaded.", () => enqueue(job)),
@@ -2118,6 +2217,13 @@ window.onPy = (event, p) => {
   // A background check found the login has lapsed: ask afresh, which brings up the Reconnect banner.
   if (event === "login_changed") { refresh(); return; }
   if (event === "export_progress" || event === "export_done") { edExportEvent(event, p); return; }
+  if (event === "auto_finished") {
+    // What an automatic download did with a game stays under "Finished", like a download asked for by hand.
+    jobs.push({ key: `auto:${p.id}:${jobs.length}`, id: p.id, kind: "Automatic download", auto: true,
+      state: p.ok ? "done" : "failed", title: gameTitle(p.id), text: p.text, percent: null, outcome: null, eta: null });
+    renderDownloads();
+    return;
+  }
   if (event === "auto") {
     // An automatic download takes its turn like any other: the line waits for it.
     autoBusy = !!p.running;
@@ -2130,9 +2236,8 @@ window.onPy = (event, p) => {
   if (event === "recaps") { onRecapsEvent(p); return; }
   if (event === "highlights_progress") {
     if (highlightsRunning.has(p.id)) {
-      setNote(p.id, p.done < p.total ? `Downloading highlight ${p.done + 1} of ${p.total} from Trace…`
-        : "Joining the clips into the highlight reel…", true);
-      setMini(p.id, p.done < p.total ? p.done / p.total : null);
+      highlightsShown(p.id, p.done < p.total ? `Downloading highlight ${p.done + 1} of ${p.total} from Trace…`
+        : "Joining the clips into the highlight reel…", p.done < p.total ? p.done / p.total : null);
     }
     jobProgress("highlights:" + p.id, p.done < p.total ? p.done / p.total : null,
       p.done < p.total ? `Highlight ${p.done + 1} of ${p.total}` : "Joining the clips into the highlight reel…");

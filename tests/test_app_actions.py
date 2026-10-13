@@ -240,8 +240,10 @@ def test_game_list_says_how_many_team_clips_each_game_has(api):
     games = list(api._game_cache.values())
     api._worker.games_result = lambda: (games, {"t-1"}, [])
     api._worker.clip_counts = lambda listed: {"t-1": 11}
+    api._worker.recap_counts = lambda listed: {"t-2": 3}
     views = api.get_games()["games"]
     assert [(v["id"], v["state"], v["clips"]) for v in views] == [("t-1", "saved", 11), ("t-2", "new", 0)]
+    assert [v["recaps"] for v in views] == [0, 3]          # and how many player recaps are saved
 
 
 def test_a_recap_stopped_midway_is_not_counted_as_a_failure(everything):
@@ -541,6 +543,9 @@ def test_auto_fetches_a_game_added_later_with_highlights_and_recaps(auto):
     states = [payload["running"] for event, payload in auto.events if event == "auto"]
     assert states[0] is True and states[-1] is False
     assert auto.notes[-1] == "Automatic download: 1 new game saved"
+    # What it saved is told to the page, to stay on the Downloads page's Finished list.
+    assert [payload for event, payload in auto.events if event == "auto_finished"] == [
+        {"id": "t-3", "ok": True, "text": "Saved the full game, highlights and 2 player recaps."}]
 
 
 def test_auto_does_nothing_when_off_or_while_you_are_downloading(auto):
@@ -623,6 +628,7 @@ def test_game_list_says_which_games_have_a_cut_off_download(api):
     games = list(api._game_cache.values())
     api._worker.games_result = lambda: (games, {"t-1"}, [])
     api._worker.clip_counts = lambda listed: {}
+    api._worker.recap_counts = lambda listed: {}
     api._worker.partials = lambda listed, done: {"t-2": 0.62}
     views = api.get_games()["games"]
     assert [(v["id"], v["partial"]) for v in views] == [("t-1", None), ("t-2", 0.62)]
@@ -901,6 +907,7 @@ def test_a_saved_game_whose_video_is_gone_is_listed_as_missing(api):
     games = list(api._game_cache.values())
     api._worker.games_result = lambda: (games, {"t-1", "t-2"}, [])
     api._worker.clip_counts = lambda listed: {}
+    api._worker.recap_counts = lambda listed: {}
     api._worker.missing = lambda listed, done: {"t-2"}
     assert [(v["id"], v["state"]) for v in api.get_games()["games"]] == [("t-1", "saved"), ("t-2", "missing")]
 

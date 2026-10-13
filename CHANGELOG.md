@@ -3,6 +3,14 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.6.1
+- Play a player's recap from the Player Recaps list: a saved recap has a Play button that plays it in the game's player, including one downloaded a moment ago.
+- A saved recap is told by its player's name in green, and the Player Recaps button on a game is green once any of that game's recaps are saved.
+- The Player Recaps list only shows players who have a recap for that game.
+- Opening Player Recaps goes straight to the list and shows clearly that it is loading. While a download is running it says that the list is waiting for it to finish, instead of looking stuck.
+- Fixed the progress of a highlights download vanishing from a game's card after visiting a game's page and coming back.
+- Automatic downloads stay on the Downloads page under Finished, saying what was saved for each game, until you clear them or close the app.
+
 ## 1.6.0
 - Suggest marks: a new button above the Editor's timeline puts a first guess at where the game starts, where each break begins and ends, and where the game ends. It works from where Trace tracked the players (the field emptying for a break, everyone standing and then moving at a kick-off) and, where the referee's whistle can be heard in the saved video, puts the mark by the whistle. The guesses lean to the safe side, leaving a little standing about in sooner than cutting any play. Check each one and drag it into place; goals stay yours to mark. It can take a minute, and needs a game Trace has tracking for.
 - Drag a mark along the Editor's timeline to move it: the start and end bars, the breaks and the goals. The picture follows, to show the moment the mark is on.

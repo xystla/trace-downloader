@@ -104,9 +104,11 @@ class Api:
         games, done, errors = self._w().games_result()
         self._game_cache = {g.id: g for g in games}
         clips = self._w().clip_counts(games)
+        recaps = self._w().recap_counts(games)
         partial = self._w().partials(games, done)      # full-game downloads that were cut off
         missing = self._w().missing(games, done)        # saved, but the video is no longer there
-        views = [{**view, "clips": clips.get(view["id"], 0), "partial": partial.get(view["id"]),
+        views = [{**view, "clips": clips.get(view["id"], 0), "recaps": recaps.get(view["id"], 0),
+                  "partial": partial.get(view["id"]),
                   "state": "missing" if view["id"] in missing else view["state"]}
                  for view in games_view(games, done)]
         return {"games": views, "errors": errors}
@@ -737,6 +739,7 @@ class Api:
                                     "text": f"Automatic download {index} of {len(pending)}: {name}"})
                 w.clear_cancel()
                 got = False
+                parts = []          # what was saved of this game, for the Downloads page
                 if state.full:
                     result = self._run_download(g.id)
                     if result.get("no_space"):
@@ -747,18 +750,32 @@ class Api:
                     if not self._saved(result):
                         if w.cancelled():
                             break
+                        self._emit("auto_finished", {"id": g.id, "ok": False, "text":
+                                                     "Not saved: Trace's video wasn't ready, or the download failed. "
+                                                     "It is tried again at the next check."})
                         continue                  # no video yet, or it failed: try again next time
                     if autodl.load(DATA).low_disk:
                         self._auto_change(lambda s: setattr(s, "low_disk", False))
                     got = True
+                    parts.append("the full game")
                 if state.highlights:
-                    got = bool(self.download_highlights(g.id).get("ok")) or got
+                    clips = bool(self.download_highlights(g.id).get("ok"))
+                    got = clips or got
+                    if clips:
+                        parts.append("highlights")
                     if w.cancelled():
                         break
                 if state.recaps:
-                    got = bool(self.download_all_recaps(g.id, quiet=True).get("recaps")) or got
+                    recaps = self.download_all_recaps(g.id, quiet=True).get("recaps") or 0
+                    got = bool(recaps) or got
+                    if recaps:
+                        parts.append(f"{recaps} player recap{'' if recaps == 1 else 's'}")
                     if w.cancelled():
                         break
+                # A line under "Finished" on the Downloads page, kept until the app is closed.
+                said = " and ".join(filter(None, [", ".join(parts[:-1]), parts[-1]])) if parts else ""
+                self._emit("auto_finished", {"id": g.id, "ok": bool(parts), "text":
+                                             f"Saved {said}." if parts else "Nothing new to save for this game yet."})
                 if not state.full:
                     # Without its video a game is never marked done, so note here
                     # that it has been dealt with (or is still to be tried again).

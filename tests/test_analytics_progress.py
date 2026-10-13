@@ -242,8 +242,10 @@ def test_highlights_listing_marks_recaps_already_saved(trace, tmp_path, monkeypa
     listing = trace.worker._list_highlights("demo-1", "2026-06-04", "Rovers")
     assert listing["team_clips"] == 1
     assert listing["players"] == [
-        {"user_id": 3, "number": "10", "name": "", "saved": True, "seconds": None},
-        {"user_id": 2, "number": "7", "name": "Sage S.", "saved": False, "seconds": 0}]
+        {"user_id": 3, "number": "10", "name": "", "saved": True, "seconds": None, "label": "#10"},
+        {"user_id": 2, "number": "7", "name": "Sage S.", "saved": False, "seconds": 0, "label": "#7 Sage S"}]
+    # The label is the one the saved recap goes by in the game's player, so the page can find it there.
+    assert [r["label"] for r in trace.worker._game_media("demo-1", "2026-06-04", "Rovers")["recaps"]] == ["#10"]
 
 
 def test_highlights_listing_says_how_long_each_recap_is(trace, tmp_path, monkeypatch):
@@ -294,6 +296,18 @@ def test_clip_counts_come_from_each_games_highlights_folder(trace, tmp_path, mon
     games = [Game("demo-1", "demo", "2026-06-04", "Rovers", "T vs. Rovers"),
              Game("demo-2", "demo", "2026-06-01", "United", "T vs. United")]
     assert trace.worker._clip_counts(games) == {"demo-1": 2}
+
+
+def test_recap_counts_come_from_each_games_saved_recaps(trace, tmp_path, monkeypatch):
+    _recap_worker(trace, tmp_path, monkeypatch)
+    from trace_grabber.games import Game
+    folder = tmp_path / "2026-06-04_vs-rovers" / "Player Highlights"
+    folder.mkdir(parents=True)
+    for name in ("player-07-sage-s.mp4", "player-10.mp4", "player-11.part.mp4"):      # one still downloading
+        (folder / name).write_bytes(b"v")
+    games = [Game("demo-1", "demo", "2026-06-04", "Rovers", "T vs. Rovers"),
+             Game("demo-2", "demo", "2026-06-01", "United", "T vs. United")]
+    assert trace.worker._recap_counts(games) == {"demo-1": 2}
 
 
 def _older_layout(tmp_path):

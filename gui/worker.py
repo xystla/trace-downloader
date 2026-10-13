@@ -192,6 +192,9 @@ class Worker:
     def clip_counts(self, games):
         return self.submit(lambda: self._clip_counts(games))
 
+    def recap_counts(self, games):
+        return self.submit(lambda: self._recap_counts(games))
+
     def folder_to_open(self, game_id, date, opponent):
         return self.submit(lambda: self._folder_to_open(game_id, date, opponent))
 
@@ -991,13 +994,7 @@ class Worker:
         folders = self._folders(game_id, date, opponent)
         clips_dir = self._saved_clips(folders)[0]
         reel = clips_dir / highlights.REEL_NAME if clips_dir else None
-        recap_files = []
-        for folder in (folders.players, folders.legacy_highlights):
-            if folder.is_dir():
-                recap_files = sorted(p for p in folder.glob("player-*.mp4")
-                                     if not p.name.endswith(".part.mp4"))
-                if recap_files:
-                    break
+        recap_files = self._saved_recaps(folders)
         number = lambda p: int(p.stem.split("-")[1]) if p.stem.split("-")[1].isdigit() else 10 ** 9
         return {"full": self._game_files(date or game_id, opponent or None, game_id),
                 "reel": str(reel) if reel and reel.exists() else None,
@@ -1011,6 +1008,23 @@ class Worker:
                          for p in highlights.my_clips(folders.my_clips)],
                 "edited": [{"label": "Edited game", "path": str(p)} for p in sorted(folders.edited.glob("*.mp4"))
                            if not p.name.endswith(".part.mp4")] if folders.edited.is_dir() else []}
+
+    @staticmethod
+    def _saved_recaps(folders):
+        """The player recaps saved for a game, in order."""
+        for folder in (folders.players, folders.legacy_highlights):
+            if folder.is_dir():
+                found = sorted(p for p in folder.glob("player-*.mp4") if not p.name.endswith(".part.mp4"))
+                if found:
+                    return found
+        return []
+
+    def _recap_counts(self, games):
+        """{game id: player recaps already saved}, for games that have any."""
+        if not self._active():
+            return {}
+        counts = {g.id: len(self._saved_recaps(self._folders(g.id, g.date, g.opponent))) for g in games}
+        return {game_id: n for game_id, n in counts.items() if n}
 
     def _clip_counts(self, games):
         """{game id: team clips already cut}, for games that have any."""
@@ -1043,7 +1057,8 @@ class Worker:
 
     def _list_highlights(self, game_id, date, opponent):
         """What a game's highlights folder holds, and each player's recap: already
-        saved, or how long it is ("seconds": 0 when Trace has none for this game)."""
+        saved, or how long it is ("seconds": 0 when Trace has none for this game).
+        "label" is the name the recap goes by in the game's player once saved."""
         folders = self._folders(game_id, date, opponent)
         num = int(game_id.rsplit("-", 1)[-1])
         players = []
@@ -1052,7 +1067,8 @@ class Worker:
             seconds = None if saved else (
                 len(recaps.fetch_segments(self._ctx.request, p.user_id, num)) * recaps.SEGMENT_SECS)
             players.append({"user_id": p.user_id, "number": p.number, "name": p.name,
-                            "saved": saved, "seconds": seconds})
+                            "saved": saved, "seconds": seconds,
+                            "label": recaps.recap_label(recaps.recap_name(p))})
         return {"team_clips": self._saved_clips(folders)[1], "players": players}
 
     @keep_awake()
