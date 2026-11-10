@@ -34,7 +34,8 @@ class Piece:
 
 def video_info(path) -> dict:
     """What the export needs to know about a video: its length, size, frame rate,
-    overall bitrate (kbit/s, None if not stated) and whether it has sound."""
+    overall bitrate and those of its picture and sound (kbit/s, None where not
+    stated) and whether it has sound."""
     said = subprocess.run([ffmpeg_path(), "-hide_banner", "-i", str(path)],
                           capture_output=True, text=True, **subprocess_flags()).stderr
     length = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", said)
@@ -42,11 +43,15 @@ def video_info(path) -> dict:
     if not length or not size:
         raise RuntimeError("That video couldn't be read.")
     rate = re.search(r"bitrate: (\d+) kb/s", said)
+    picture = re.search(r"Video:[^\n]*?, (\d+) kb/s", said)
+    sound = re.search(r"Audio:[^\n]*?, (\d+) kb/s", said)
     frames = re.search(r"Video:.*?, (\d+(?:\.\d+)?) fps", said)
     hours, minutes, seconds = length.groups()
     return {"duration": round(int(hours) * 3600 + int(minutes) * 60 + float(seconds), 3),
             "width": int(size.group(1)), "height": int(size.group(2)),
             "bitrate": int(rate.group(1)) if rate else None, "audio": "Audio:" in said,
+            "video_bitrate": int(picture.group(1)) if picture else None,
+            "audio_bitrate": int(sound.group(1)) if sound else None,
             "fps": float(frames.group(1)) if frames else 30.0}
 
 
@@ -149,9 +154,13 @@ def filter_script(pieces, plates, lay: dict, font: str, size=(1920, 1080), fps: 
     return ";\n".join(lines) + "\n"
 
 
-def build_cmd(pieces, plate_names, dest, quality: str, bitrate=None, audio: bool = True) -> list[str]:
+def build_cmd(pieces, plate_names, dest, quality: str, bitrate=None, audio: bool = True,
+              audio_bitrate=None) -> list[str]:
     """The ffmpeg command, to be run in the folder holding graph.txt, the
-    plates and the typeface (so none of their names needs escaping)."""
+    plates and the typeface (so none of their names needs escaping).
+    `bitrate` (kbit/s) is what the picture aims for at the faster quality on a
+    Mac, and at the "same" quality, where the sound gets `audio_bitrate` too,
+    so the export takes as much room a minute as the original."""
     cmd = ["ffmpeg", "-y", "-hide_banner"]
     for piece in pieces:
         cmd += ["-ss", f"{piece.start:.3f}", "-t", f"{piece.length:.3f}", "-i", str(piece.path)]
@@ -162,13 +171,20 @@ def build_cmd(pieces, plate_names, dest, quality: str, bitrate=None, audio: bool
         cmd += ["-map", "[ca]"]
     if quality == "faster" and sys.platform == "darwin":
         cmd += ["-c:v", "h264_videotoolbox", "-b:v", f"{int((bitrate or 6000) * 1.3)}k"]      # the Mac's video hardware
+    elif quality == "same":
+        # x264 at the original's own rate: it holds the average, and lets a busy
+        # stretch borrow up to twice that from the quiet ones around it.
+        rate = int(bitrate or 6000)
+        cmd += ["-c:v", "libx264", "-preset", "medium", "-b:v", f"{rate}k",
+                "-maxrate", f"{2 * rate}k", "-bufsize", f"{2 * rate}k"]
     elif quality == "faster":
         cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
     else:
         cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "17"]                          # visually lossless
     cmd += ["-pix_fmt", "yuv420p"]
     if audio:
-        cmd += ["-c:a", "aac", "-b:a", "192k"]
+        sound_rate = int(audio_bitrate or 128) if quality == "same" else 192
+        cmd += ["-c:a", "aac", "-b:a", f"{sound_rate}k"]
     return cmd + ["-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(dest)]
 
 
@@ -237,6 +253,22 @@ def export(project: dict, files, dest, quality: str = "best", progress_cb=None, 
         _write_out(dest, parts, plates, work, quality, infos, audio, total, progress_cb, on_proc)
 
 
+def same_rates(infos) -> tuple:
+    """(picture, sound) kbit/s of the original, over all its files weighted by
+    their length, for an export that takes the same room a minute. Either is
+    None if ffmpeg didn't say; the picture's then is the whole rate less the sound's."""
+    def average(rates):
+        known = [(r, info["duration"]) for r, info in zip(rates, infos) if r]
+        if not known:
+            return None
+        return round(sum(r * d for r, d in known) / (sum(d for _, d in known) or 1))
+    sound = average([info.get("audio_bitrate") for info in infos])
+    picture = average([info.get("video_bitrate") or
+                       (info["bitrate"] - (info.get("audio_bitrate") or 0) if info.get("bitrate") else None)
+                       for info in infos])
+    return picture, sound
+
+
 def _write_out(dest, parts, plates, work, quality, infos, audio, total, progress_cb, on_proc) -> None:
     try:
         with complete_or_nothing(dest) as part:
@@ -244,8 +276,13 @@ def _write_out(dest, parts, plates, work, quality, infos, audio, total, progress
                 # source's, but never so little that the bug's lettering goes soft
                 # (about 0.07 bits a pixel a frame, some 4.4 Mbit/s at 1080 lines).
                 enough = infos[0]["width"] * infos[0]["height"] * 30 * 0.07 / 1000 / 1.3
-                cmd = build_cmd(parts, [name for name, _, _ in plates], part.resolve(), quality,
-                                max(infos[0]["bitrate"] or 0, enough), audio)
+                if quality == "same":
+                    picture, sound = same_rates(infos)
+                    cmd = build_cmd(parts, [name for name, _, _ in plates], part.resolve(), quality,
+                                    picture or enough * 1.3, audio, sound)
+                else:
+                    cmd = build_cmd(parts, [name for name, _, _ in plates], part.resolve(), quality,
+                                    max(infos[0]["bitrate"] or 0, enough), audio)
                 cmd[0] = ffmpeg_path()
                 run(cmd, total, work, progress_cb, on_proc)
     except PermissionError as error:

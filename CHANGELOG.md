@@ -3,6 +3,9 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.6.2
+- A new export choice in the Editor, "Same size as original": the edited game takes as much room a minute as the original, so with the breaks cut out the file is smaller than the original instead of nearly twice its size. It looks almost the same as the original. "Best quality" is unchanged and is still the default.
+
 ## 1.6.1
 - Play a player's recap from the Player Recaps list: a saved recap has a Play button that plays it in the game's player, including one downloaded a moment ago.
 - A saved recap is told by its player's name in green, and the Player Recaps button on a game is green once any of that game's recaps are saved.

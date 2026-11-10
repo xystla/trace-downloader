@@ -21,7 +21,7 @@ def _ffmpeg_says(monkeypatch, text):
 def test_a_videos_facts_are_read_from_ffmpeg(monkeypatch):
     _ffmpeg_says(monkeypatch, INFO)
     assert export.video_info("game.mp4") == {"duration": 4480.13, "width": 1920, "height": 1080, "bitrate": 5183,
-                                             "audio": True, "fps": 30.0}
+                                             "audio": True, "fps": 30.0, "video_bitrate": 5050, "audio_bitrate": 125}
     _ffmpeg_says(monkeypatch, INFO.replace("  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, mono, fltp, 125 kb/s (default)\n", "")
                  .replace("1920x1080", "1280x720"))
     silent = export.video_info("game.mp4")
@@ -164,6 +164,32 @@ def test_the_faster_quality_uses_the_macs_video_hardware_and_plain_speed_elsewhe
     assert win[win.index("-c:v"):win.index("-c:a")] == ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
     silent = export.build_cmd(PIECES, ["plate0.png"], Path("/o.mp4"), "best", audio=False)
     assert "[ca]" not in silent and "-c:a" not in silent
+
+
+def test_the_same_size_quality_aims_for_the_originals_own_rates():
+    cmd = export.build_cmd(PIECES, ["plate0.png"], Path("/o.mp4"), "same", bitrate=5050, audio_bitrate=125)
+    assert cmd[cmd.index("-c:v"):cmd.index("-c:a")] == ["-c:v", "libx264", "-preset", "medium", "-b:v", "5050k",
+                                                        "-maxrate", "10100k", "-bufsize", "10100k", "-pix_fmt", "yuv420p"]
+    assert cmd[cmd.index("-c:a"):cmd.index("-c:a") + 4] == ["-c:a", "aac", "-b:a", "125k"]
+    best = export.build_cmd(PIECES, ["plate0.png"], Path("/o.mp4"), "best", audio_bitrate=125)
+    assert best[best.index("-b:a") + 1] == "192k"
+
+
+def test_the_same_size_rates_are_the_originals_over_both_halves():
+    first = {"duration": 3000.0, "bitrate": 5200, "video_bitrate": 5000, "audio_bitrate": 125}
+    second = {"duration": 1000.0, "bitrate": 3200, "video_bitrate": 3000, "audio_bitrate": 125}
+    assert export.same_rates([first, second]) == (4500, 125)
+    unstated = {"duration": 100.0, "bitrate": 5183, "video_bitrate": None, "audio_bitrate": None}
+    assert export.same_rates([unstated]) == (5183, None)
+    assert export.same_rates([{**unstated, "bitrate": None}]) == (None, None)
+
+
+def test_a_same_size_export_asks_for_the_originals_rates(monkeypatch, tmp_path):
+    ran = _fake_export(monkeypatch)
+    monkeypatch.setattr(export, "video_info", lambda path: {"duration": 5000.0, "width": 1920, "height": 1080, "bitrate": 5183,
+                                                           "audio": True, "fps": 30.0, "video_bitrate": 5051, "audio_bitrate": 125})
+    export.export(PROJECT, ["/v/game.mp4"], tmp_path / "out.mp4", "same")
+    assert ran["cmd"][ran["cmd"].index("-b:v") + 1] == "5051k" and ran["cmd"][ran["cmd"].index("-b:a") + 1] == "125k"
 
 
 class _Ffmpeg:

@@ -3798,10 +3798,10 @@ function edDrawExport() {
   if (!ed.problems.length) {
     const quality = document.createElement("select");
     quality.setAttribute("aria-label", "Export quality");
-    quality.append(new Option("Best quality", "best"), new Option("Faster", "faster"));
+    quality.append(new Option("Best quality", "best"), new Option("Same size as original", "same"), new Option("Faster", "faster"));
     quality.value = edRun.quality;
     quality.onchange = () => { edRun.quality = quality.value; };
-    quality.title = "Best looks the same as the original and takes longer. Faster uses the computer's video hardware where it can.";
+    quality.title = "Best looks the same as the original, takes longer and makes a bigger file. Same size as original uses as much room a minute as the original, so the file is no bigger. Faster uses the computer's video hardware where it can.";
     const go = labelButton("download", "Export game",
       "Save the game with the breaks cut out and the score bug on top, in the game's Edited folder. Exporting again replaces the earlier export.",
       async () => {

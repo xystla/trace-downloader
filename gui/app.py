@@ -506,7 +506,7 @@ class Api:
         def work():
             done = {"id": game_id, "ok": False, "stopped": False}
             try:
-                path = self._w().export_edit(g.id, g.date, g.opponent, "faster" if quality == "faster" else "best",
+                path = self._w().export_edit(g.id, g.date, g.opponent, quality if quality in ("faster", "same") else "best",
                                              on_progress, started, sound=sound is not False)
                 done.update(ok=True, label="Edited game", url=self._url(path))
                 platform_tasks.notify(f"Exported vs {g.opponent or g.title} with the score bug")
