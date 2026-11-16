@@ -37,8 +37,11 @@ def game(monkeypatch, tmp_path):
     w.fetched = []
     w.owners = []
     w.sounds = []
-    def fetch(parts, dest, headers, quality, on_progress=None, should_stop=None, on_proc=None, owner="", sound=True):
+    w.mirrors = []
+    def fetch(parts, dest, headers, quality, on_progress=None, should_stop=None, on_proc=None, owner="", sound=True,
+              mirrors=None):
         w.fetched.append(dest.name)
+        w.mirrors.append(mirrors)
         w.sounds.append(sound)
         w.owners.append(owner)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +148,11 @@ def test_discarding_removes_the_pieces_and_any_finished_half(game):
 def test_fetching_says_whose_download_it_is(game):
     game.run()
     assert game.owners == ["demo-7", "demo-7"]
+
+
+def test_a_piece_trace_cannot_serve_is_looked_for_in_its_other_places(game):
+    game.run()
+    assert game.mirrors == [game.module.streams.mirrors] * 2
 
 
 def test_another_games_half_with_the_same_name_is_neither_taken_nor_overwritten(game):

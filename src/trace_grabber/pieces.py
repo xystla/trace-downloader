@@ -113,22 +113,36 @@ def _write(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
-def _fetch_piece(url: str, path: Path, headers: dict, should_stop) -> int:
-    """Fetch one piece (three tries) and save it; returns its size."""
+def _try(url: str, headers: dict):
+    """One fetch: (data, None) or (None, why it failed)."""
+    try:
+        data = _get(url, headers)
+    except Exception as error:
+        return None, error
+    return (data, None) if data else (None, OSError("Trace sent an empty piece"))
+
+
+def _fetch_piece(url: str, path: Path, headers: dict, should_stop, mirrors=None) -> int:
+    """Fetch one piece (three tries) and save it; returns its size. If it will not
+    come, each of mirrors(url) is tried once: Trace's storage can fail one piece in
+    one place for good while another place has the same piece."""
     data = None
     why = None
     for attempt in range(1, TRIES + 1):
         if should_stop():
             raise Stopped("stopped")
-        try:
-            data = _get(url, headers)
-            if data:
-                break
-            why = OSError("Trace sent an empty piece")
-        except Exception as error:
-            data, why = None, error
+        data, why = _try(url, headers)
+        if data:
+            break
         if attempt < TRIES:
             time.sleep(PAUSE * attempt)
+    for other in (mirrors(url) if mirrors and not data else []):
+        if should_stop():
+            raise Stopped("stopped")
+        data, _ = _try(other, headers)
+        if data:
+            LOG.info("piece %s came from a mirror, %s, after %r", path.name, other, why)
+            break
     if not data:
         # The person is told the connection dropped; the log keeps what really happened.
         LOG.info("piece %s failed after %s tries: %r", path.name, TRIES, why)
@@ -163,7 +177,8 @@ def _join(parts, folder: Path, dest: Path, on_proc, sound: bool = True) -> None:
 
 
 def fetch(parts, dest, headers: dict, quality: str, on_progress=None, should_stop=None,
-          on_proc=None, workers: int = 4, owner: str = "", sound: bool = True) -> None:
+          on_proc=None, workers: int = 4, owner: str = "", sound: bool = True,
+          mirrors=None) -> None:
     """Download a half to dest. `parts` is segments.parse() output: (seconds, URL)
     for each piece, in order. Pieces already on disk from an earlier attempt are
     not fetched again. Raises Stopped when should_stop() says so, RuntimeError when
@@ -172,7 +187,8 @@ def fetch(parts, dest, headers: dict, quality: str, on_progress=None, should_sto
     `owner` names whose download this is (the game's id). Two games can share a
     file name, so pieces are only carried on with for the same owner, and the
     finished half is left with a record of it (see finished()). With `sound`
-    False the half is saved without its audio.
+    False the half is saved without its audio. `mirrors(url)`, if given, lists
+    other addresses of the same piece to try when its own will not serve it.
 
     on_progress(done_bytes, total_bytes, pieces_done, pieces_total) follows it, the
     total being a projection from the pieces fetched so far. on_proc(process) hands
@@ -200,7 +216,8 @@ def fetch(parts, dest, headers: dict, quality: str, on_progress=None, should_sto
     stop = lambda: asked_to_stop() or failed.is_set()
     error = None
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_fetch_piece, parts[index][1], _piece(folder, index), headers, stop): index
+        futures = {pool.submit(_fetch_piece, parts[index][1], _piece(folder, index), headers, stop,
+                               mirrors): index
                    for index in missing}
         for future in as_completed(futures):
             if future.cancelled():

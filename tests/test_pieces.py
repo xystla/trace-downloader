@@ -92,6 +92,28 @@ def test_a_piece_is_tried_three_times_before_giving_up(trace, tmp_path):
     assert trace.asked.count("https://t/b.ts") == 3
 
 
+def test_a_piece_trace_cannot_serve_is_taken_from_a_mirror(trace, tmp_path):
+    # Trace's own copy of one piece answers 500 every time; its second copy works.
+    trace.fail["https://t/b.ts"] = None
+    trace.fail["https://down/b.ts"] = None                # a mirror without it is passed over
+    dest = tmp_path / "g.mp4"
+    pieces.fetch(_parts("a", "b", "c"), dest, {}, "highest", workers=1,
+                 mirrors=lambda url: [url.replace("https://t/", "https://down/"),
+                                      url.replace("https://t/", "https://m/")])
+    assert dest.read_bytes() == b"<https://t/a.ts><https://m/b.ts><https://t/c.ts>"
+    assert trace.asked.count("https://t/b.ts") == 3       # its own place is still tried first, in full
+    assert "https://m/a.ts" not in trace.asked            # mirrors only for a piece that failed
+
+
+def test_a_piece_no_mirror_has_still_drops(trace, tmp_path):
+    trace.fail["https://t/b.ts"] = None
+    trace.fail["https://m/b.ts"] = None
+    with pytest.raises(RuntimeError, match="connection dropped"):
+        pieces.fetch(_parts("b"), tmp_path / "g.mp4", {}, "highest", workers=1,
+                     mirrors=lambda url: [url.replace("https://t/", "https://m/")])
+    assert trace.asked.count("https://m/b.ts") == 1
+
+
 def test_a_stop_keeps_what_was_fetched(trace, tmp_path):
     dest = tmp_path / "game_half1.mp4"
     stop = lambda: len(trace.asked) >= 2                      # asked to stop after two pieces

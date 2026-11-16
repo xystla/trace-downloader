@@ -581,7 +581,7 @@ class Worker:
                                  on_progress=lambda *numbers, n=number: report(n, *numbers),
                                  should_stop=self._cancel.is_set,
                                  on_proc=lambda pr: setattr(self, "_proc", pr), owner=game_id,
-                                 sound=sound)
+                                 sound=sound, mirrors=streams.mirrors)
                 except RuntimeError:
                     if self._cancel.is_set():
                         break       # stopped: what was fetched stays, for Resume

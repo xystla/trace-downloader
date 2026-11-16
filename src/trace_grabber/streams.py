@@ -41,6 +41,27 @@ def prefix_from_url(url: str, team_id: str, game_id: str) -> str | None:
     prefix, found, _ = urlsplit(url).path.partition(f"/teams/{team_id}/games/{game_id}/")
     return prefix.strip("/") or None if found else None
 
+def mirrors(url: str) -> list[str]:
+    """The same file of a game in the other places Trace may keep a copy of it,
+    nearest first: the region's other folder (api <-> qaapi), then the places in
+    PREFIXES. Trace's storage can fail one piece in one place for good (seen Nov
+    2026: a 1080p piece answered 500 under api every time and 200 under qaapi), so
+    these are what to try when a piece will not come. [] for any other address."""
+    if not url.startswith(S.BASE_URL + "/"):
+        return []
+    prefix, found, rest = url[len(S.BASE_URL) + 1:].partition("/teams/")
+    if not found or not prefix:
+        return []
+    head, _, folder = prefix.rpartition("/")
+    twin = {"api": "qaapi", "qaapi": "api"}.get(folder)
+    places = ([f"{head}/{twin}" if head else twin] if twin else []) + PREFIXES
+    out = []
+    for place in places:
+        candidate = f"{S.BASE_URL}/{place}/teams/{rest}"
+        if place != prefix and candidate not in out:
+            out.append(candidate)
+    return out
+
 def prefix_from_html(html: str, team_id: str, game_id: str) -> str | None:
     """Extract the real URL prefix for a game from its watch-page HTML.
 

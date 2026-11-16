@@ -148,3 +148,21 @@ def test_discover_athlete_opens_a_game_card_as_trace_draws_them_now():
     page = _Page()
     assert discover_athlete(page, "https://go.traceup.com/traceid/team/t") == "X"
     assert page.clicked == [".GameCard .thumbnail"]
+
+def test_mirrors_offer_the_same_file_in_the_other_places_trace_keeps_it():
+    from trace_grabber.streams import mirrors
+    tail = "teams/t/games/t-9/gamevideo1.hls/video_3000k326.ts"
+    found = mirrors(f"https://go.traceup.com/us-west-2/soccer/api/{tail}")
+    # The other folder in the same region first: it is where Trace keeps a second copy.
+    assert found[0] == f"https://go.traceup.com/us-west-2/soccer/qaapi/{tail}"
+    assert f"https://go.traceup.com/us-west-2/soccer/api/{tail}" not in found
+    assert f"https://go.traceup.com/api/{tail}" in found
+    assert len(found) == len(set(found))
+
+def test_mirrors_work_for_a_region_not_listed_and_ignore_other_addresses():
+    from trace_grabber.streams import mirrors
+    tail = "teams/t/games/t-9/gamevideo1.hls/video_3000k1.ts"
+    assert mirrors(f"https://go.traceup.com/eu-north-9/soccer/qaapi/{tail}")[0] == \
+        f"https://go.traceup.com/eu-north-9/soccer/api/{tail}"
+    assert mirrors("https://elsewhere.example/api/teams/t/games/t-9/x.ts") == []
+    assert mirrors("https://go.traceup.com/no-teams-here/x.ts") == []
