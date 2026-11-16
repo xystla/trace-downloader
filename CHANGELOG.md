@@ -3,6 +3,9 @@
 What changed in each version of TraceDown. The app shows a version's list the
 first time it opens after updating, and the same list becomes the release notes.
 
+## 1.6.3
+- Fixed a download that failed at the same spot every time, however often it was resumed. Trace's server sometimes can't hand over one short piece of a game's video; TraceDown now fetches that piece from Trace's second copy of the video instead of giving up.
+
 ## 1.6.2
 - A new export choice in the Editor, "Same size as original": the edited game takes as much room a minute as the original, so with the breaks cut out the file is smaller than the original instead of nearly twice its size. It looks almost the same as the original. "Best quality" is unchanged and is still the default.
 
